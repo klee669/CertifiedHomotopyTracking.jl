@@ -6,7 +6,12 @@ export toCCi,
     convert_to_box_int, 
     convert_to_box_matrix, 
     convert_to_double_int, 
-    convert_to_double_matrix
+    convert_to_double_matrix,
+    mag_complex,
+    norm_inf,
+    to_acb_vec,
+    get_mid,
+    get_mid_vec
 
 using AbstractAlgebra
 
@@ -110,3 +115,21 @@ function convert_to_box_matrix(M,ring)
     end
     Matrix(result)
 end
+
+
+function mag_complex(z::AcbFieldElem)
+    val_interval = abs(z)
+    return Float64(val_interval)
+end
+norm_inf(v::AbstractArray{AcbFieldElem}) = maximum(mag_complex.(v))
+
+function to_acb_vec(x::AbstractVector)
+    return [CC(xi) for xi in x] 
+end
+
+function get_mid(z::AcbFieldElem)
+    re = midpoint(real(z)) 
+    im = midpoint(imag(z))
+    return CC(re, im) 
+end
+get_mid_vec(v::AbstractVector{AcbFieldElem}) = get_mid.(v)

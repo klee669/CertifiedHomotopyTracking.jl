@@ -1,6 +1,8 @@
 export speed_vector,
        linear_predictor,
-       hermite_predictor
+       hermite_predictor,
+       compute_velocity,
+       construct_hermite_predictor_tm
 
 
 # --------------------------------------------------------------------------
@@ -74,3 +76,35 @@ function hermite_predictor(
 
     return x + result
 end
+
+
+function compute_velocity(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, A::AbstractMatrix{AcbFieldElem})
+    x_mid = get_mid_vec(x)
+    t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
+    Ht = evaluate_dt(sys, x_mid, t_mid)
+    return -A * Ht
+end
+
+function construct_hermite_predictor_tm(x, x_prev, v, v_prev, h_prev, h_curr)
+    dx = x - x_prev
+    dv = v - v_prev
+    
+    h_p = CC(h_prev)
+    h_sq = h_p^2
+    h_cb = h_p^3
+    
+    c0 = x
+    c1 = v
+    c2 = (3 .* v ./ h_p) .- (dv ./ h_p) .- (3 .* dx ./ h_sq)
+    c3 = (2 .* v ./ h_sq) .- (dv ./ h_sq) .- (2 .* dx ./ h_cb)
+    
+    n = length(x)
+    h_arb = RR(h_curr) 
+    
+    tm_vec = Vector{TaylorModel3}(undef, n)
+    for i in 1:n
+        tm_vec[i] = TaylorModel3(c0[i], c1[i], c2[i], c3[i], CC(0), h_arb)
+    end
+    return tm_vec
+end
+

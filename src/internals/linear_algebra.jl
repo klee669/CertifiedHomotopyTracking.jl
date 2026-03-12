@@ -2,6 +2,7 @@ export jac,
        evaluate_matrix,
        jacobian_inverse,
        interval_svd,
+       inv_acb,
        numerical_kernel,
        create_seed_pair
 
@@ -139,4 +140,28 @@ function create_seed_pair(
          K * convert_to_box_matrix(rand(size(K, 2), 1), CC)
 
     return (Matrix(transpose(xp + xh)), p)
+end
+
+
+function inv_acb(A::AbstractMatrix)
+    if eltype(A) !== AcbFieldElem
+        n_rows, n_cols = size(A)
+        A_typed = Matrix{AcbFieldElem}(undef, n_rows, n_cols)
+        for i in 1:n_rows, j in 1:n_cols
+            A_typed[i,j] = CC(A[i,j])
+        end
+        A = A_typed
+    end
+
+    R = CC 
+    n = size(A, 1)
+    
+    Mat = matrix(R, A) 
+    InvMat = inv(Mat)
+    
+    res = Matrix{AcbFieldElem}(undef, n, n)
+    for i in 1:n, j in 1:n
+        res[i,j] = InvMat[i,j]
+    end
+    return res
 end

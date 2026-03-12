@@ -1,4 +1,4 @@
-export krawczyk_operator, krawczyk_test
+export krawczyk_operator, krawczyk_test, compute_preconditioner, validate_step_taylor3
 
 
 ####### functions for Krawczyk test
@@ -41,3 +41,72 @@ function krawczyk_test(
     max_norm(K) < ρ
 end
 
+
+function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t)
+    x_mid = get_mid_vec(x)
+    t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
+    J_val = evaluate_Jac(sys, x_mid, t_mid) 
+    return inv_acb(J_val)
+end
+
+function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r::Number; rho=0.7)
+    n = length(x)
+    x_interval = x 
+    
+    A = compute_preconditioner(sys, x_interval, t)
+    
+    one_int = RR("0 +/- 1") 
+    b_int = CC(one_int, one_int)
+    B = [b_int for _ in 1:n]
+    
+    fx = evaluate_H(sys, x_interval, t)
+    
+    x_expanded = x_interval .+ (B .* CC(r))
+    Jx = evaluate_Jac(sys, x_expanded, t)
+    
+    term1 = -(A * fx) ./ CC(r)
+    
+    I_mat = Matrix{AcbFieldElem}(undef, n, n)
+    for i in 1:n, j in 1:n
+        I_mat[i,j] = (i == j ? CC(1) : CC(0))
+    end
+    
+    term2 = (I_mat - A * Jx) * B
+    
+    K = term1 + term2
+    k_norm = norm_inf(K)
+    
+    return k_norm < rho, k_norm
+end
+
+function validate_step_taylor3(sys::HCSystem, X_tm::Vector{TaylorModel3}, t_start, h, r, A; rho=0.7)
+    n = length(X_tm)
+    t_tm = TaylorModel3(CC(t_start), CC(1), CC(0), CC(0), CC(0), RR(h))
+    
+    F_tm = evaluate_H(sys, X_tm, t_tm)
+    F_val = evaluate_taylor.(F_tm)
+    X_bound = evaluate_taylor.(X_tm)
+    
+    one_int = RR("0 +/- 1")
+    b_int = CC(one_int, one_int)
+    B = [b_int for _ in 1:n]
+    
+    X_expanded = X_bound .+ (B .* CC(r))
+    T_expanded = CC(t_start) + CC(RR(0), RR(h))
+    
+    J_val = evaluate_Jac(sys, X_expanded, T_expanded)
+    
+    term1 = -(A * F_val) ./ CC(r)
+    
+    I_mat = Matrix{AcbFieldElem}(undef, n, n)
+    for i in 1:n, j in 1:n
+        I_mat[i,j] = (i == j ? CC(1) : CC(0))
+    end
+    
+    term2 = (I_mat - A * J_val) * B
+    
+    K = term1 + term2
+    norm_K = norm_inf(K)
+    
+    return norm_K < rho, norm_K
+end

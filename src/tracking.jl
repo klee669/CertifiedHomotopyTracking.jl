@@ -1,4 +1,4 @@
-export track, tracking_without_predictor
+export track, tracking_without_predictor, track_path
 
 # tracking without predictor
 function tracking_without_predictor(H, x; r = .1, iterations_count = false)
@@ -144,5 +144,120 @@ function track(
         else
             rethrow(e)
         end
+    end
+end
+
+
+function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=0.0, t_end=1.0, h_init=0.1)
+    t = RR(t_start)
+    t_target = RR(t_end)
+    h = RR(h_init)
+    
+    if sys.homogeneous
+        if length(x_start_input) == length(sys.vars) - 1
+            x = [CC(1); x_start_input]
+        else
+            x = copy(x_start_input)
+        end
+        
+        mags = [mag_complex(xi) for xi in x]
+        max_val, max_idx = findmax(mags)
+        
+        scale = x[max_idx]
+        x = x ./ scale
+        sys.patch_idx = max_idx
+    else
+        x = copy(x_start_input)
+    end
+    
+    A = compute_preconditioner(sys, x, t)
+    x, r, A, success = refine_moore_box(sys, x, t, 1e-6, A)
+    if !success 
+        return x, false 
+    end
+    
+    x_prev = copy(x)
+    v_prev = compute_velocity(sys, x, t, A)
+    h_prev = h
+    
+    iter = 0
+    
+    while t < t_target
+        iter += 1
+        dt_remaining = t_target - t
+        if h > dt_remaining h = dt_remaining end
+        
+        if sys.homogeneous
+            mags = [mag_complex(xi) for xi in x]
+            max_val, max_idx = findmax(mags)
+            
+            if max_idx != sys.patch_idx && max_val > 1.5
+                scale = x[max_idx]
+                x = x ./ scale
+                x_prev = x_prev ./ scale
+                v_prev = v_prev ./ scale 
+                sys.patch_idx = max_idx
+                A = compute_preconditioner(sys, x, t)
+            end
+        end
+
+        x, r, A, success = refine_moore_box(sys, x, t, r, A)
+        if !success return x, false end
+
+        v = compute_velocity(sys, x, t, A)
+        
+        step_accepted = false
+        min_h = RR(1e-20)
+        
+        while h > min_h
+            local X_tm
+            if iter == 1
+                X_tm = [TaylorModel3(x[i], v[i], CC(0), CC(0), CC(0), h) for i in 1:length(x)]
+            else
+                X_tm = construct_hermite_predictor_tm(x, x_prev, v, v_prev, h_prev, h)
+            end
+            
+            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A)
+            
+            if passed
+                step_accepted = true
+                x_next_interval = evaluate_taylor.(X_tm)
+                x_new = get_mid_vec(x_next_interval)
+                x_prev = x; v_prev = v; h_prev = h
+                x = x_new; t += h
+                
+                print("Iter $iter: t=$(Float64(t)), h=$(Float64(h)) \r")
+                h = min(h * 2, RR(0.5))
+                break
+            else
+                h /= 2
+            end
+        end
+        if !step_accepted 
+            @info("too small step size!")
+            return x, false 
+        end
+    end
+    
+    print("\r" * " "^60 * "\r") 
+
+    if sys.homogeneous
+        try
+            A_final = compute_preconditioner(sys, x, t_target)
+            x_polished, _, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
+            if success_polish
+                x = x_polished
+            end
+        catch
+        end
+
+        return x, true
+    else
+        A_final = compute_preconditioner(sys, x, t_target)
+        x_polished, _, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
+        if success_polish
+            x = x_polished
+        end
+        return x, true
     end
 end
