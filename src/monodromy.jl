@@ -7,28 +7,33 @@ export solve_monodromy, build_gap_group, vertex, edge, parameter_points, galois_
 # ------------------------------------------------------------------------------
 # Data Structures
 # ------------------------------------------------------------------------------
+const PointType = Vector{AcbFieldElem} 
 
 mutable struct Vertex
-    base_point::Union{Vector{AcbFieldElem},Matrix{AcbFieldElem}}
-    partial_sols::Vector{Union{Vector{AcbFieldElem},Matrix{AcbFieldElem}}}
-    Edges::Vector{Any} # Type Any to avoid circular dependency definition issues
+    base_point::PointType
+    sols::Vector{PointType}
+    Edges::Vector{Any} # Type Any to avoid circular dependency
 end
-
-Base.show(io::IO, x::Vertex) = print(io, "Vertex($(length(x.partial_sols)) solutions)")
 
 mutable struct Edge
     node1::Vertex
     node2::Vertex
-    correspondence12::Vector{Tuple{Int64,Int64}}
-    correspondence21::Vector{Tuple{Int64,Int64}}
+    correspondence12::Vector{Tuple{Int, Int}}
+    correspondence21::Vector{Tuple{Int, Int}}
 end
 
-Base.show(io::IO, x::Edge) = print(io, "Edge($(length(x.correspondence12)) correspondences)")
-
 # Constructors
-vertex(p::Vector) = Vertex(p, Matrix{AcbFieldElem}[], [])
+vertex(p::Vector) = Vertex(p, PointType[], [])
 vertex(p::Vector, x::Vector) = Vertex(p, x, [])
-edge(p::Vertex, q::Vertex) = Edge(p, q, Tuple{Int64,Int64}[], Tuple{Int64,Int64}[])
+edge(p::Vertex, q::Vertex) = Edge(p, q, Tuple{Int,Int}[], Tuple{Int,Int}[])
+
+Base.show(io::IO, v::Vertex) = print(io, "Vertex($(length(v.sols)) solutions)")
+Base.show(io::IO, e::Edge) = print(io, "Edge($(length(e.correspondence12)) correspondences)")
+
+function make_edge_system(compiled_sys::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem})
+    return HCSystem(compiled_sys, p_start, p_end)
+end
+
 
 # ------------------------------------------------------------------------------
 # Core Logic: Monodromy Solving
@@ -188,6 +193,142 @@ function track_edge!(
     sort!(c_backward)
 end
 
+
+function track_edge!(compiled_sys::CompiledHomotopy, e::Edge, from1to2::Bool, edge_idx::Int, id_src::Int, id_dest::Int)
+    if from1to2
+        source_v, target_v = e.node1, e.node2
+        c_forward, c_backward = e.correspondence12, e.correspondence21
+    else
+        source_v, target_v = e.node2, e.node1
+        c_forward, c_backward = e.correspondence21, e.correspondence12
+    end
+
+    source_sols = source_v.sols
+    target_sols = target_v.sols
+    
+    tracked_indices = Set(x[1] for x in c_forward)
+    untracked_indices = [i for i in 1:length(source_sols) if !(i in tracked_indices)]
+
+    if isempty(untracked_indices)
+        return
+    end
+
+    @info "Tracking Edge ($id_src -> $id_dest): $(length(untracked_indices)) new paths to track."
+
+    sys_edge = make_edge_system(compiled_sys, source_v.base_point, target_v.base_point)
+    
+    count_success = 0; count_new = 0; count_collision = 0
+    
+    for src_idx in untracked_indices
+        start_point = source_sols[src_idx]
+        
+        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1)
+        
+        if success
+            dest_idx = search_point(y_end, target_sols)
+            
+            if dest_idx === nothing
+                push!(target_sols, y_end)
+                dest_idx = length(target_sols)
+                
+                push!(c_forward, (src_idx, dest_idx))
+                push!(c_backward, (dest_idx, src_idx))
+                
+                printstyled("+", color=:green, bold=true)
+                count_new += 1
+                count_success += 1
+            else
+                already_mapped = any(p -> p[2] == dest_idx, c_forward)
+                if !already_mapped
+                    push!(c_forward, (src_idx, dest_idx))
+                    push!(c_backward, (dest_idx, src_idx))
+                    printstyled(".", color=:cyan)
+                    count_success += 1
+                else
+                    printstyled("c", color=:yellow, bold=true)
+                    count_collision += 1
+                end
+            end
+        else
+            printstyled("x", color=:red, bold=true)
+        end
+    end
+    
+    sort!(c_forward)
+    sort!(c_backward)
+    println(" Done. (Ok: $count_success, New: $count_new, Collision: $count_collision)")
+end
+
+function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex}; max_roots=20)
+    edges = Edge[]
+    for i in 1:length(vertices)-1
+        for j in i+1:length(vertices)
+            e = edge(vertices[i], vertices[j])
+            push!(edges, e)
+            push!(vertices[i].Edges, e)
+            push!(vertices[j].Edges, e)
+        end
+    end
+    
+    iter = 0
+    iter_stagnant = 0
+    total_correspondences = 0
+    
+    try
+        while true
+            iter += 1
+            current_correspondences = sum(length(e.correspondence12) for e in edges)
+            
+            if current_correspondences == total_correspondences
+                iter_stagnant += 1
+            else
+                iter_stagnant = 0
+                total_correspondences = current_correspondences
+            end
+            
+            max_sols_found = maximum(length(v.sols) for v in vertices)
+            total_sols_stored = sum(length(v.sols) for v in vertices)
+            
+            println("\n" * "="^70)
+            println(" Iteration $iter | Target: $max_roots | Max Found: $max_sols_found | Stored: $total_sols_stored | Stagnant: $iter_stagnant")
+            println("-"^70)
+            
+            if all(e -> length(e.correspondence12) == max_roots, edges)
+                println("🎉 Success! All edges reached $max_roots correspondences.")
+                break
+            end
+
+            if iter_stagnant > 10
+                println("⚠️ Stopping: No new solutions found after 10 iterations.")
+                break
+            end
+            
+            for (idx, e) in enumerate(edges)
+                id1 = findfirst(==(e.node1), vertices)
+                id2 = findfirst(==(e.node2), vertices)
+                
+                track_edge!(compiled_sys, e, true, idx, id1, id2)
+                track_edge!(compiled_sys, e, false, idx, id2, id1)
+
+                counts = map(x -> length(x.correspondence12), edges)
+                @info "Status (Edge $idx done): Correspondences => $counts"
+            end
+        end
+        
+    catch e
+        if isa(e, InterruptException)
+            println("\n\n⚠️ Computation Interrupted by User!")
+            println("Returning vertices and edges computed SO FAR.")
+            return edges
+        else
+            rethrow(e)
+        end
+    end
+    
+    return edges
+end
+
+
 # ------------------------------------------------------------------------------
 # GAP Integration
 # ------------------------------------------------------------------------------
@@ -263,20 +404,14 @@ end
 # Helper Functions
 # ------------------------------------------------------------------------------
 
-function search_point(res::Vector{AcbFieldElem}, p_list::Vector)
-    n = length(p_list)
-    best_idx, best_val = 0, Inf
-
-    for i in 1:n 
-        dist = maximum(map(abs ∘ max_int_norm, res - p_list[i]))
-        if dist < best_val
-            best_val = dist
-            best_idx = i
+function search_point(res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldElem}}; tol=1e-4)
+    for (idx, sol) in enumerate(pool)
+        dist = maximum(mag_complex.(res .- sol))
+        if dist < tol
+            return idx
         end
     end
-
-    # Threshold for deciding it's the same point
-    return best_val > 5e-3 ? false : Int64(best_idx)
+    return nothing
 end
 
 function parameter_points(v1::Vertex, sz_p::Int, n_vertices::Int)
