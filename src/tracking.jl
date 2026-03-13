@@ -149,16 +149,13 @@ end
 
 
 function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=0.0, t_end=1.0, h_init=0.1)
-    
-    RR         = parent(real(x_start_input[1]))
-    CC         = parent(x_start_input[1])
-
+    CC = sys.CC; RR = sys.RR
     t = RR(t_start)
     t_target = RR(t_end)
     h = RR(h_init)
     
     if sys.homogeneous
-        if length(x_start_input) == length(sys.vars) - 1
+        if length(x_start_input) == length(sys.compiled.func_H) - 1 # 대략적 확인
             x = [CC(1); x_start_input]
         else
             x = copy(x_start_input)
@@ -166,7 +163,6 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
         
         mags = [mag_complex(xi) for xi in x]
         max_val, max_idx = findmax(mags)
-        
         scale = x[max_idx]
         x = x ./ scale
         sys.patch_idx = max_idx
@@ -194,7 +190,6 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
         if sys.homogeneous
             mags = [mag_complex(xi) for xi in x]
             max_val, max_idx = findmax(mags)
-            
             if max_idx != sys.patch_idx && max_val > 1.5
                 scale = x[max_idx]
                 x = x ./ scale
@@ -209,23 +204,23 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
         if !success return x, false end
 
         v = compute_velocity(sys, x, t, A)
-        
         step_accepted = false
         min_h = RR(1e-20)
         
         while h > min_h
             local X_tm
             if iter == 1
-                X_tm = [TaylorModel3(x[i], v[i], CC(0), CC(0), CC(0), h) for i in 1:length(x)]
+                X_tm = [TaylorModel3(x[i], v[i], CC(0), CC(0), CC(0), RR(h)) for i in 1:length(x)]
             else
-                X_tm = construct_hermite_predictor_tm(x, x_prev, v, v_prev, h_prev, h)
+                X_tm = construct_hermite_predictor_tm(sys, x, x_prev, v, v_prev, h_prev, h)
             end
             
-            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A, CC, RR)
+            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A)
             
             if passed
                 step_accepted = true
-                x_next_interval = evaluate_taylor.(X_tm)
+                cache = TMCache(CC)
+                x_next_interval = [evaluate_taylor!(CC(0), tm, cache) for tm in X_tm]
                 x_new = get_mid_vec(x_next_interval)
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
@@ -254,7 +249,6 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
             end
         catch
         end
-
         return x, true
     else
         A_final = compute_preconditioner(sys, x, t_target)

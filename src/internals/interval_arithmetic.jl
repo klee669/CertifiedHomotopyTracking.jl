@@ -116,19 +116,13 @@ function convert_to_box_matrix(M,ring)
     Matrix(result)
 end
 
-
 function mag_complex(z::AcbFieldElem)
-    val_interval = abs(z)
-    return Float64(val_interval)
+    return Float64(abs(z))
 end
 norm_inf(v::AbstractArray{AcbFieldElem}) = maximum(mag_complex.(v))
 
-function to_acb_vec(x::AbstractVector)
-    return [CC(xi) for xi in x] 
-end
-
 function get_mid(z::AcbFieldElem)
-    CC = parent(z)
+    CC = parent(z) 
     re = midpoint(real(z)) 
     im = midpoint(imag(z))
     return CC(re, im) 

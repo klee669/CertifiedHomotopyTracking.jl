@@ -7,12 +7,40 @@ struct CompiledHomotopy
     homogeneous::Bool
 end
 
+mutable struct HCSystem
+    compiled::CompiledHomotopy
+    p_start::Tuple{Vararg{AcbFieldElem}}
+    p_end::Tuple{Vararg{AcbFieldElem}}
+    homogeneous::Bool
+    patch_idx::Int
+    
+    CC::AcbField 
+    RR::ArbField
+    
+    function HCSystem(compiled::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem})
+        CC = parent(p_start[1]) 
+        RR = ArbField(precision(CC))
+        new(compiled, Tuple(p_start), Tuple(p_end), compiled.homogeneous, 1, CC, RR)
+    end
+end
+
+struct TMCache
+    temp1::AcbFieldElem
+    temp2::AcbFieldElem
+    temp3::AcbFieldElem
+    zero_cc::AcbFieldElem 
+    
+    function TMCache(CC::AcbField)
+        new(CC(0), CC(0), CC(0), CC(0))
+    end
+end
+
+
 function compile_edge_homotopy(F_eqs, x_vars, p_vars, t_var; homogeneous=false)
     println("Compiling Homotopy System (Only Once!)...")
     n_params = length(p_vars)
     
     @variables p_starts[1:n_params] p_ends[1:n_params]
-    
     path_exprs = [ (1-t_var)*p_starts[i] + t_var*p_ends[i] for i in 1:n_params ]
     
     subs_dict = Dict(p_vars[i] => path_exprs[i] for i in 1:n_params)
@@ -40,19 +68,6 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars, t_var; homogeneous=false)
     return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, homogeneous)
 end
 
-mutable struct HCSystem
-    compiled::CompiledHomotopy
-    p_start::Tuple{Vararg{AcbFieldElem}}
-    p_end::Tuple{Vararg{AcbFieldElem}}
-    homogeneous::Bool
-    patch_idx::Int
-    
-    function HCSystem(compiled::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem})
-        new(compiled, Tuple(p_start), Tuple(p_end), compiled.homogeneous, 1)
-    end
-end
-
-
 function evaluate_H_augmented(sys::HCSystem, x, t)
     val_sys = sys.compiled.func_H(x, t, sys.p_start..., sys.p_end...)
     if !sys.homogeneous
@@ -65,8 +80,7 @@ end
 evaluate_H(sys::HCSystem, x, t) = evaluate_H_augmented(sys, x, t)
 
 function evaluate_Jac(sys::HCSystem, x, t)
-    CC         = parent(x[1])
-
+    CC = sys.CC 
     J_sys = sys.compiled.func_Jx(x, t, sys.p_start..., sys.p_end...)
     if !sys.homogeneous
         return J_sys
@@ -84,7 +98,7 @@ function evaluate_Jac(sys::HCSystem, x, t)
 end
 
 function evaluate_dt_augmented(sys::HCSystem, x, t)
-    CC         = parent(x[1])
+    CC = sys.CC 
     val_dt = sys.compiled.func_dt(x, t, sys.p_start..., sys.p_end...)
     if !sys.homogeneous
         return val_dt

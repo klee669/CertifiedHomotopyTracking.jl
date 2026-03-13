@@ -144,20 +144,18 @@ end
 
 
 function inv_acb(A::AbstractMatrix)
-    CC = parent(A[1, 1])
+    CC = eltype(A) === AcbFieldElem ? parent(A[1,1]) : parent(first(A))
+    n = size(A, 1)
+    
     if eltype(A) !== AcbFieldElem
-        n_rows, n_cols = size(A)
-        A_typed = Matrix{AcbFieldElem}(undef, n_rows, n_cols)
-        for i in 1:n_rows, j in 1:n_cols
+        A_typed = Matrix{AcbFieldElem}(undef, n, n)
+        for i in 1:n, j in 1:n
             A_typed[i,j] = CC(A[i,j])
         end
         A = A_typed
     end
 
-    R = CC 
-    n = size(A, 1)
-    
-    Mat = matrix(R, A) 
+    Mat = matrix(CC, A) 
     InvMat = inv(Mat)
     
     res = Matrix{AcbFieldElem}(undef, n, n)

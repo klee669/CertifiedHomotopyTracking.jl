@@ -43,7 +43,7 @@ end
 
 
 function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t)
-    CC = parent(x[1])
+    CC = sys.CC
     x_mid = get_mid_vec(x)
     t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
     J_val = evaluate_Jac(sys, x_mid, t_mid) 
@@ -51,21 +51,17 @@ function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, 
 end
 
 function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r::Number; rho=0.7)
-    RR         = parent(real(x[1]))
-    CC         = parent(x[1])
-
+    CC = sys.CC; RR = sys.RR
     n = length(x)
-    x_interval = x 
     
-    A = compute_preconditioner(sys, x_interval, t)
+    A = compute_preconditioner(sys, x, t)
     
     one_int = RR("0 +/- 1") 
     b_int = CC(one_int, one_int)
     B = [b_int for _ in 1:n]
     
-    fx = evaluate_H(sys, x_interval, t)
-    
-    x_expanded = x_interval .+ (B .* CC(r))
+    fx = evaluate_H(sys, x, t)
+    x_expanded = x .+ (B .* CC(r))
     Jx = evaluate_Jac(sys, x_expanded, t)
     
     term1 = -(A * fx) ./ CC(r)
@@ -76,20 +72,22 @@ function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r::Num
     end
     
     term2 = (I_mat - A * Jx) * B
-    
     K = term1 + term2
     k_norm = norm_inf(K)
     
     return k_norm < rho, k_norm
 end
 
-function validate_step_taylor3(sys::HCSystem, X_tm::Vector{TaylorModel3}, t_start, h, r, A, CC, RR; rho=0.7)
+function validate_step_taylor3(sys::HCSystem, X_tm::Vector{TaylorModel3}, t_start, h, r, A; rho=0.7)
+    CC = sys.CC; RR = sys.RR
     n = length(X_tm)
     t_tm = TaylorModel3(CC(t_start), CC(1), CC(0), CC(0), CC(0), RR(h))
     
     F_tm = evaluate_H(sys, X_tm, t_tm)
-    F_val = evaluate_taylor.(F_tm)
-    X_bound = evaluate_taylor.(X_tm)
+    
+    cache = TMCache(CC)
+    F_val = [evaluate_taylor!(CC(0), tm, cache) for tm in F_tm]
+    X_bound = [evaluate_taylor!(CC(0), tm, cache) for tm in X_tm]
     
     one_int = RR("0 +/- 1")
     b_int = CC(one_int, one_int)
