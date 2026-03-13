@@ -50,8 +50,6 @@ To compute the monodromy group of a parameterized system:
 ```julia
 using Nemo, AbstractAlgebra, Symbolics, GAP
 using CertifiedHomotopyTracking
-using Random
-Random.seed!() 
 
 # 1. Set up the variables
 @variables x y t
