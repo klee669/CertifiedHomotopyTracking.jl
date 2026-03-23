@@ -1,12 +1,9 @@
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
-using Nemo
-using AbstractAlgebra
 using CertifiedHomotopyTracking
 
 
-using Nemo, Symbolics
 @variables x y 
 const PREC_BITS = 256
 const CC = AcbField(PREC_BITS)

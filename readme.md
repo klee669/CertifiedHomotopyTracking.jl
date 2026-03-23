@@ -15,30 +15,28 @@
 If you want to track a single solution path from $t=0$ to $t=1$:
 
 ```julia
-using Nemo, AbstractAlgebra
 using CertifiedHomotopyTracking
 
 # 1. Set up the polynomial ring
-@monodromy_setup begin
-    vars = (x, y)
-end
-const CCi = _CCi # Alias for the coefficient ring (Complex Interval Field)
+@variables x y
+const PREC_BITS = 256
+const CC = AcbField(PREC_BITS) # Complex Field (acb)
+
 
 # 2. Define your system F(x, y) and the start system G(x, y)
 f1 = x^2 + 3*y - 4
 f2 = y^2 + 3
 
-F = [f1 f2]
-G = [x^2-1 y^2-1]
+F = [f1, f2]
+G = [x^2-1, y^2-1]
 
 # 3. Define the start point at t=0 and the homotopy H
-H = straight_line_homotopy(F, G, t)
-point = [CCi(1), CCi(-1)]
+H = straight_line_homotopy(F, G, [x, y])
+point = [CC(1), CC(-1)]
 
 # 4. Track!
-track(H, point)
-track(H, point; iterations_count=true) # print the number of iterations
-track(H, point; show_display=false) # turn off the display
+y, res_boolean = track_path(H, point)
+max_norm(hcat(evaluate_H(H, y, CC(1)))) # check the residual of the result!
 
 ```
 
@@ -48,11 +46,10 @@ track(H, point; show_display=false) # turn off the display
 To compute the monodromy group of a parameterized system:
 
 ```julia
-using Nemo, AbstractAlgebra, Symbolics, GAP
 using CertifiedHomotopyTracking
 
 # 1. Set up the variables
-@variables x y t
+@variables x y
 @variables p q
 const PREC_BITS = 256
 const CC = AcbField(PREC_BITS) # Complex Field (acb)
@@ -82,7 +79,7 @@ for i in 1:3
     push!(vertices, vertex(rand_u))
 end
 
-compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars, t; homogeneous=false);
+compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars; homogeneous=false);
 
 # 5. Solve monodromy (Tracking)
 edges = solve_monodromy(compiled_homotopy, vertices; max_roots=4)
