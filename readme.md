@@ -8,8 +8,8 @@
 * [Quick Start](#quick-start)
   * [1. Basic certified tracking](#1-basic-certified-tracking)
   * [2. Certified monodromy group computation](#2-certified-monodromy-group-computation)
-      * [2.1 Homotopy graphs](#2.1-homotopy-graphs)
-      * [2.2 Specific loops](#2.2-specific-loops)
+       * [2.1 Homotopy graphs](#21-homotopy-graphs)
+       * [2.2 Specific loops](#22-specific-loops)
 
 
 ## Features
