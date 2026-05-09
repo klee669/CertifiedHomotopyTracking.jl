@@ -42,8 +42,8 @@ function build_edges(vertices::Vector{Vertex}, edge_pairs::Vector{Tuple{Int, Int
 end
 
 
-function make_edge_system(compiled_sys::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem})
-    return HCSystem(compiled_sys, p_start, p_end)
+function make_edge_system(compiled_sys::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem}, p_const::Vector{AcbFieldElem}=AcbFieldElem[])
+    return HCSystem(compiled_sys, p_start, p_end, p_const)
 end
 
 

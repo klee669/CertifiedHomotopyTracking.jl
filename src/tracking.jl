@@ -148,19 +148,32 @@ function track(
 end
 
 
-function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=0.0, t_end=1.0, h_init=0.1)
+function track_path(
+    sys::HCSystem,
+    x_start_input::Vector{AcbFieldElem};
+    t_start=0.0,
+    t_end=1.0,
+    h_init=0.1,
+    rho=0.7,
+    show_progress=false,
+)
     CC = sys.CC; RR = sys.RR
     t = RR(t_start)
     t_target = RR(t_end)
     h = RR(h_init)
-    
+    r = 1e-6
+    iter = 0
+    accepted_steps = 0
+    rejected_steps = 0
+    last_k_norm = Inf
+
     if sys.homogeneous
-        if length(x_start_input) == length(sys.compiled.func_H) - 1 # 대략적 확인
+        if length(x_start_input) == length(sys.compiled.func_H) - 1 # rough check
             x = [CC(1); x_start_input]
         else
             x = copy(x_start_input)
         end
-        
+
         mags = [mag_complex(xi) for xi in x]
         max_val, max_idx = findmax(mags)
         scale = x[max_idx]
@@ -169,24 +182,22 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
     else
         x = copy(x_start_input)
     end
-    
+
     A = compute_preconditioner(sys, x, t)
-    x, r, A, success = refine_moore_box(sys, x, t, 1e-6, A)
-    if !success 
-        return x, false 
+    x, r, A, success = refine_moore_box(sys, x, t, r, A)
+    if !success
+        return _track_result(sys, x, false, :initial_refinement_failed, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Initial Moore box refinement failed.")
     end
-    
+
     x_prev = copy(x)
     v_prev = compute_velocity(sys, x, t, A)
     h_prev = h
-    
-    iter = 0
-    
+
     while t < t_target
         iter += 1
         dt_remaining = t_target - t
         if h > dt_remaining h = dt_remaining end
-        
+
         if sys.homogeneous
             mags = [mag_complex(xi) for xi in x]
             max_val, max_idx = findmax(mags)
@@ -194,19 +205,21 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
                 scale = x[max_idx]
                 x = x ./ scale
                 x_prev = x_prev ./ scale
-                v_prev = v_prev ./ scale 
+                v_prev = v_prev ./ scale
                 sys.patch_idx = max_idx
                 A = compute_preconditioner(sys, x, t)
             end
         end
 
         x, r, A, success = refine_moore_box(sys, x, t, r, A)
-        if !success return x, false end
+        if !success
+            return _track_result(sys, x, false, :refinement_failed, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Moore box refinement failed during tracking.")
+        end
 
         v = compute_velocity(sys, x, t, A)
         step_accepted = false
         min_h = RR(1e-20)
-        
+
         while h > min_h
             local X_tm
             if iter == 1
@@ -214,48 +227,66 @@ function track_path(sys::HCSystem, x_start_input::Vector{AcbFieldElem}; t_start=
             else
                 X_tm = construct_hermite_predictor_tm(sys, x, x_prev, v, v_prev, h_prev, h)
             end
-            
-            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A)
-            
+
+            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A; rho=rho)
+            last_k_norm = k_norm
+
             if passed
                 step_accepted = true
+                accepted_steps += 1
                 cache = TMCache(CC)
                 x_next_interval = [evaluate_taylor!(CC(0), tm, cache) for tm in X_tm]
                 x_new = get_mid_vec(x_next_interval)
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
-                
-                print("Iter $iter: t=$(Float64(t)), h=$(Float64(h)) \r")
+
+                show_progress && print("Iter $iter: t=$(Float64(t)), h=$(Float64(h)) \r")
                 h = min(h * 2, RR(0.5))
                 break
             else
+                rejected_steps += 1
                 h /= 2
             end
         end
-        if !step_accepted 
-            @info("too small step size!")
-            return x, false 
+
+        if !step_accepted
+            show_progress && print("\r" * " "^60 * "\r")
+            return _track_result(sys, x, false, :step_too_small, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Step size became too small before validation succeeded.")
         end
     end
-    
-    print("\r" * " "^60 * "\r") 
+
+    show_progress && print("\r" * " "^60 * "\r")
+
+    final_status = :success
+    final_message = "Path tracked successfully."
+    final_success = true
 
     if sys.homogeneous
         try
             A_final = compute_preconditioner(sys, x, t_target)
-            x_polished, _, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
+            x_polished, r_polished, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
             if success_polish
                 x = x_polished
+                r = r_polished
+            else
+                final_status = :final_refinement_failed
+                final_message = "Path reached target, but final polishing failed."
             end
         catch
+            final_status = :final_refinement_error
+            final_message = "Path reached target, but final polishing raised an error."
         end
-        return x, true
     else
         A_final = compute_preconditioner(sys, x, t_target)
-        x_polished, _, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
+        x_polished, r_polished, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
         if success_polish
             x = x_polished
+            r = r_polished
+        else
+            final_status = :final_refinement_failed
+            final_message = "Path reached target, but final polishing failed."
         end
-        return x, true
     end
+
+    return _track_result(sys, x, final_success, final_status, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, final_message)
 end

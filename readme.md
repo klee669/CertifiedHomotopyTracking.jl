@@ -27,8 +27,8 @@ using CertifiedHomotopyTracking
 
 # 1. Set up the polynomial ring
 @variables x y
-const PREC_BITS = 256
-const CC = AcbField(PREC_BITS) # Complex Field (acb)
+PREC_BITS = 256
+CC = AcbField(PREC_BITS) # Complex Field (acb)
 
 
 # 2. Define your system F(x, y) and the start system G(x, y)
@@ -43,8 +43,9 @@ H = straight_line_homotopy(F, G, [x, y])
 point = [CC(1), CC(-1)]
 
 # 4. Track!
-y, res_boolean = track_path(H, point)
-max_norm(hcat(evaluate_H(H, y, CC(1)))) # check the residual of the result!
+res = track_path(H, point)
+solution(res) # rounded ComplexF64 solution for display
+max_norm(hcat(evaluate_H(H, certified_region(res), CC(1)))) # certified residual check
 
 ```
 
@@ -59,8 +60,8 @@ using CertifiedHomotopyTracking
 # 1. Set up the variables
 @variables x y
 @variables p q
-const PREC_BITS = 256
-const CC = AcbField(PREC_BITS) # Complex Field (acb)
+PREC_BITS = 256
+CC = AcbField(PREC_BITS) # Complex Field (acb)
 
 
 # 2. Define your parameter system F(x, y; p, q)

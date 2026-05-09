@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../..")) 
 
 
 using CertifiedHomotopyTracking
@@ -7,9 +5,9 @@ using CertifiedHomotopyTracking
 @variables x 
 @variables h g τ
 
-const PREC_BITS = 256 
-const CC = AcbField(PREC_BITS) # Complex Field (acb)
-const RR = ArbField(PREC_BITS)    # Real Field (arb)
+PREC_BITS = 256 
+CC = AcbField(PREC_BITS) # Complex Field (acb)
+RR = ArbField(PREC_BITS)    # Real Field (arb)
 
 one_int = RR("0 +/- 1e-30") 
 b_int = CC(one_int, one_int)
@@ -68,18 +66,21 @@ vertices = [v1]
 function track_loop(bp, a, b, x0, r, p_list, i, F)
     println("Root Number $i: Tracking the first edge")
     F1 = make_edge_system(F, bp, a)
-    x1, _ = track_path(F1, x0; t_end=1.0, h_init=0.1)
-    if x1 === nothing return nothing, nothing end 
+    res_x1 = track_path(F1, x0; t_end=1.0, h_init=0.1)
+    x1 = certified_region(res_x1)
+    if !succeeded(res_x1) return nothing, nothing end 
 
     println("Root Number $i: Tracking the second edge")
     F2 = make_edge_system(F, a, b)
-    x2, _ = track_path(F2, x1; t_end=1.0, h_init=0.1)
-    if x2 === nothing return nothing, nothing end 
+    res_x2 = track_path(F2, x1; t_end=1.0, h_init=0.1)
+    x2 = certified_region(res_x2)
+    if !succeeded(res_x2) return nothing, nothing end 
 
     println("Root Number $i: Tracking the third edge")
     F3 = make_edge_system(F, b, bp)
-    x3, _ = track_path(F3, x2; t_end=1.0, h_init=0.1)
-    if x3 === nothing return nothing, nothing end 
+    res_x3 = track_path(F3, x2; t_end=1.0, h_init=0.1)
+    x3 = certified_region(res_x3)
+    if !succeeded(res_x3) return nothing, nothing end 
 
     ind = search_point(x3, p_list)
     println("Result: Mapped to $ind")
