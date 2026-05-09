@@ -1,12 +1,10 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../../../.."))
 
 using CertifiedHomotopyTracking
 
 @variables x
 @variables c1, c2, c3, c4, c5
-const PREC_BITS = 256
-const CC = AcbField(PREC_BITS)
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
 
 F = [c5*x^8+c4*x^6+c3*x^4+c2*x^2+c1]
 bp = [CC(1/2), CC(9/7), CC(9/7), CC(45/7), CC(45/56)]

@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../../../..")) 
 
 
 using Nemo
@@ -11,10 +9,10 @@ using CertifiedMonodromyComputation
 @variables x t
 @variables c0,c1,c2,c3,c4,c5,c6,c7,c8
 
-const PREC_BITS = 256 
-const CC = AcbField(PREC_BITS) # Complex Field (acb)
-const RR = ArbField(PREC_BITS)    # Real Field (arb)
-const CCi = CC
+PREC_BITS = 256 
+CC = AcbField(PREC_BITS) # Complex Field (acb)
+RR = ArbField(PREC_BITS)    # Real Field (arb)
+CCi = CC
 
 F_exprs = [
     c8*x^8+c7*x^7+c6*x^6+c5*x^5+c4*x^4+c3*x^3+c2*x^2+c1*x+c0

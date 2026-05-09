@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../.."))
 #Pkg.instantiate()
 
 using CertifiedHomotopyTracking
@@ -14,7 +12,7 @@ println("=== Running 5 Point Example ===")
     vars = (X,Y,Z)
     params = (x11,x21,x31,x41,x51,x12,x22,x32,x42,x52,y11,y21,y31,y41,y51,y12,y22,y32,y42,y52)
 end
-const CCi = _CCi
+CCi = _CCi
 
 include("eqs.jl")
 include("pts.jl")

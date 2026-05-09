@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../.."))
 #Pkg.instantiate()
 
 using CertifiedHomotopyTracking
@@ -12,7 +10,7 @@ using CertifiedHomotopyTracking
     vars = (l1, l2, l3)
     params = (q11,q12,q13,q21,q22,q23,q31,q32,q33,s1,s2,s3,t1,t2,t3)
 end
-const CCi = _CCi
+CCi = _CCi
 
 
 include("p3p_eqs.jl")

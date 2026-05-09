@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "../.."))
 #Pkg.instantiate()
 
 using CertifiedHomotopyTracking
@@ -10,8 +8,8 @@ using CertifiedHomotopyTracking
 # @setupfield to define variables and fields
 @variables x y z λ 
 @variables u1 u2 u3
-const PREC_BITS = 256
-const CC = AcbField(PREC_BITS)
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
 
 
 F = [2*(x-u1)-6*λ*(x^2+y^2)^2*x, 2*(y-u2)-6*λ*(x^2+y^2)^2*y, 2*(z-u3)+4*λ*z^3, 0*u1+z^4-(x^2+y^2)^3]

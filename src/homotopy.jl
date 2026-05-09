@@ -3,6 +3,7 @@ export straight_line_homotopy, linear_path, specified_system, max_degree
 # ------------------------------------------------------------------------------
 # Straight Line Homotopy
 # ------------------------------------------------------------------------------
+
 function straight_line_homotopy(F, G, t)
     n = length(F)
     
@@ -18,18 +19,25 @@ function straight_line_homotopy(F, G, t)
     end
     H
 end
-function straight_line_homotopy(F_exprs::AbstractVector{Num}, 
-    G_exprs::AbstractVector{Num}, 
+function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num}}}, 
+    G_exprs::AbstractVector{<:Union{Num, Complex{Num}}}, 
     x_vars::AbstractVector{Num}; 
     CCRing=AcbField(256), homogeneous=false)
     @variables __gamma_trick_internal_param__
     @variables t_var
+
+    coeff_vars = Num[]
+    coeff_values = Any[]
+    coeff_map = Dict{Any, Num}()
+    F_param = _parameterize_complex_coefficients!(F_exprs, x_vars, coeff_vars, coeff_values, coeff_map)
+    G_param = _parameterize_complex_coefficients!(G_exprs, x_vars, coeff_vars, coeff_values, coeff_map)
     
-    H = [(1 - t_var) * __gamma_trick_internal_param__ * G_exprs[i] + t_var * F_exprs[i] for i in 1:length(F_exprs)]
-    compiled_H = compile_edge_homotopy(H, x_vars, [__gamma_trick_internal_param__]; homogeneous=homogeneous)
+    H = [(1 - t_var) * __gamma_trick_internal_param__ * G_param[i] + t_var * F_param[i] for i in 1:length(F_param)]
+    compiled_H = compile_edge_homotopy(H, x_vars, [__gamma_trick_internal_param__]; homogeneous=homogeneous, const_vars=coeff_vars)
     
     gamma_val = CCRing(complex(randn(), randn()))
-    sys = make_edge_system(compiled_H, [gamma_val], [gamma_val])
+    coeff_vals = [_coefficient_value(CCRing, coeff) for coeff in coeff_values]
+    sys = make_edge_system(compiled_H, [gamma_val], [gamma_val], coeff_vals)
     
     return sys
 end
