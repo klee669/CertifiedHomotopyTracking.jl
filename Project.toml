@@ -1,7 +1,7 @@
 name = "CertifiedHomotopyTracking"
 uuid = "eb899720-675b-4191-acdc-9a7e63317b5e"
 authors = ["Kisun Lee"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 AbstractAlgebra = "c3fe647b-3220-5bb0-a1ea-a7954cac585d"
