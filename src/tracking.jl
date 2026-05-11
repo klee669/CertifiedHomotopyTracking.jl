@@ -1,5 +1,16 @@
 export track, tracking_without_predictor, track_path
 
+function _print_track_progress(iter, t, h)
+    msg = "Iter $iter: t=$(round(Float64(t); sigdigits=12)), h=$(round(Float64(h); sigdigits=12))"
+    print("\r", msg, "\033[K")
+    flush(stdout)
+end
+
+function _clear_track_progress()
+    print("\r\033[K")
+    flush(stdout)
+end
+
 # tracking without predictor
 function tracking_without_predictor(H, x; r = .1, iterations_count = false)
     try
@@ -73,7 +84,7 @@ function track(
     refinement_threshold = 1/8,
     predictor = "hermitian",
     iterations_count = false,
-    tracking = "truncate",
+    tracking = "non-truncate",
     projective = false,
 )
     try
@@ -156,6 +167,9 @@ function track_path(
     h_init=0.1,
     rho=0.7,
     show_progress=false,
+    projective=false,
+    patch_vector=nothing,
+    affine_chart_atol=1e-10,
 )
     CC = sys.CC; RR = sys.RR
     t = RR(t_start)
@@ -166,12 +180,35 @@ function track_path(
     accepted_steps = 0
     rejected_steps = 0
     last_k_norm = Inf
+    user_input_start = copy(x_start_input)
 
-    if sys.homogeneous
-        if length(x_start_input) == length(sys.compiled.func_H) - 1 # rough check
-            x = [CC(1); x_start_input]
+    if projective
+        sys.homogeneous || throw(ArgumentError("projective=true requires a homogenized/projective HCSystem. Construct it with projective=true."))
+        if patch_vector !== nothing
+            length(patch_vector) == sys.compiled.n_vars || throw(DimensionMismatch("patch_vector length must match the number of projective variables."))
+            sys.patch_vector = Tuple(CC(a) for a in patch_vector)
+        elseif !has_projective_patch(sys)
+            sys.compiled.n_vars > 0 || throw(ArgumentError("Cannot create a projective patch because the compiled variable count is unknown."))
+            sys.patch_vector = Tuple(CC(a) for a in random_patch_vector(sys.compiled.n_vars))
+        end
+    end
+
+    if has_projective_patch(sys)
+        if length(x_start_input) == length(sys.patch_vector) - 1
+            x = lift_to_patch(x_start_input, collect(sys.patch_vector))
+        elseif length(x_start_input) == length(sys.patch_vector)
+            x = repatch(x_start_input, collect(sys.patch_vector))
         else
+            throw(DimensionMismatch("x_start_input must have affine length n or projective length n + 1."))
+        end
+        sys.patch_idx = 1
+    elseif sys.homogeneous
+        if sys.compiled.n_vars != 0 && length(x_start_input) == sys.compiled.n_vars - 1
+            x = [CC(1); x_start_input]
+        elseif sys.compiled.n_vars == 0 || length(x_start_input) == sys.compiled.n_vars
             x = copy(x_start_input)
+        else
+            throw(DimensionMismatch("x_start_input must have affine length n or homogeneous length n + 1."))
         end
 
         mags = [mag_complex(xi) for xi in x]
@@ -182,11 +219,31 @@ function track_path(
     else
         x = copy(x_start_input)
     end
+    tracking_input_start = copy(x)
 
     A = compute_preconditioner(sys, x, t)
     x, r, A, success = refine_moore_box(sys, x, t, r, A)
+    tracking_refined_start = copy(x)
     if !success
-        return _track_result(sys, x, false, :initial_refinement_failed, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Initial Moore box refinement failed.")
+        return _track_result(
+            sys,
+            x,
+            false,
+            :initial_refinement_failed,
+            iter,
+            accepted_steps,
+            rejected_steps,
+            t,
+            h,
+            r,
+            last_k_norm,
+            rho,
+            "Initial Moore box refinement failed.";
+            affine_chart_atol=affine_chart_atol,
+            input_start=user_input_start,
+            tracking_input_start=tracking_input_start,
+            tracking_refined_start=tracking_refined_start,
+        )
     end
 
     x_prev = copy(x)
@@ -198,7 +255,7 @@ function track_path(
         dt_remaining = t_target - t
         if h > dt_remaining h = dt_remaining end
 
-        if sys.homogeneous
+        if sys.homogeneous && !has_projective_patch(sys)
             mags = [mag_complex(xi) for xi in x]
             max_val, max_idx = findmax(mags)
             if max_idx != sys.patch_idx && max_val > 1.5
@@ -213,7 +270,25 @@ function track_path(
 
         x, r, A, success = refine_moore_box(sys, x, t, r, A)
         if !success
-            return _track_result(sys, x, false, :refinement_failed, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Moore box refinement failed during tracking.")
+            return _track_result(
+                sys,
+                x,
+                false,
+                :refinement_failed,
+                iter,
+                accepted_steps,
+                rejected_steps,
+                t,
+                h,
+                r,
+                last_k_norm,
+                rho,
+                "Moore box refinement failed during tracking.";
+                affine_chart_atol=affine_chart_atol,
+                input_start=user_input_start,
+                tracking_input_start=tracking_input_start,
+                tracking_refined_start=tracking_refined_start,
+            )
         end
 
         v = compute_velocity(sys, x, t, A)
@@ -240,7 +315,7 @@ function track_path(
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
 
-                show_progress && print("Iter $iter: t=$(Float64(t)), h=$(Float64(h)) \r")
+                show_progress && _print_track_progress(iter, t, h)
                 h = min(h * 2, RR(0.5))
                 break
             else
@@ -250,12 +325,30 @@ function track_path(
         end
 
         if !step_accepted
-            show_progress && print("\r" * " "^60 * "\r")
-            return _track_result(sys, x, false, :step_too_small, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, "Step size became too small before validation succeeded.")
+            show_progress && _clear_track_progress()
+            return _track_result(
+                sys,
+                x,
+                false,
+                :step_too_small,
+                iter,
+                accepted_steps,
+                rejected_steps,
+                t,
+                h,
+                r,
+                last_k_norm,
+                rho,
+                "Step size became too small before validation succeeded.";
+                affine_chart_atol=affine_chart_atol,
+                input_start=user_input_start,
+                tracking_input_start=tracking_input_start,
+                tracking_refined_start=tracking_refined_start,
+            )
         end
     end
 
-    show_progress && print("\r" * " "^60 * "\r")
+    show_progress && _clear_track_progress()
 
     final_status = :success
     final_message = "Path tracked successfully."
@@ -271,10 +364,12 @@ function track_path(
             else
                 final_status = :final_refinement_failed
                 final_message = "Path reached target, but final polishing failed."
+                final_success = false
             end
-        catch
+        catch err
             final_status = :final_refinement_error
-            final_message = "Path reached target, but final polishing raised an error."
+            final_message = "Path reached target, but final polishing raised an error: $(sprint(showerror, err))"
+            final_success = false
         end
     else
         A_final = compute_preconditioner(sys, x, t_target)
@@ -285,8 +380,27 @@ function track_path(
         else
             final_status = :final_refinement_failed
             final_message = "Path reached target, but final polishing failed."
+            final_success = false
         end
     end
 
-    return _track_result(sys, x, final_success, final_status, iter, accepted_steps, rejected_steps, t, h, r, last_k_norm, rho, final_message)
+    return _track_result(
+        sys,
+        x,
+        final_success,
+        final_status,
+        iter,
+        accepted_steps,
+        rejected_steps,
+        t,
+        h,
+        r,
+        last_k_norm,
+        rho,
+        final_message;
+        affine_chart_atol=affine_chart_atol,
+        input_start=user_input_start,
+        tracking_input_start=tracking_input_start,
+        tracking_refined_start=tracking_refined_start,
+    )
 end

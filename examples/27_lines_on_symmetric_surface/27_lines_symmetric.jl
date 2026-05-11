@@ -32,23 +32,23 @@ p_vars = [a2100, a1110]
 function track_loop(bp, a, b, x0, p_list, i, F)
     println("Root Number $i: Tracking the first edge")
     F1 = make_edge_system(F, bp, a)
-    res_x1 = track_path(F1, x0; t_end=1.0, h_init=0.1)
+    res_x1 = track_path(F1, x0; t_end=1.0, h_init=0.1, show_progress=true)
     x1 = certified_region(res_x1)
     if !succeeded(res_x1) return nothing, nothing end 
 
     println("Root Number $i: Tracking the second edge")
     F2 = make_edge_system(F, a, b)
-    res_x2 = track_path(F2, x1; t_end=1.0, h_init=0.1)
+    res_x2 = track_path(F2, x1; t_end=1.0, h_init=0.1, show_progress=true)
     x2 = certified_region(res_x2)
     if !succeeded(res_x2) return nothing, nothing end 
 
     println("Root Number $i: Tracking the third edge")
     F3 = make_edge_system(F, b, bp)
-    res_x3 = track_path(F3, x2; t_end=1.0, h_init=0.1)
+    res_x3 = track_path(F3, x2; t_end=1.0, h_init=0.1, show_progress=true)
     x3 = certified_region(res_x3)
     if !succeeded(res_x3) return nothing, nothing end 
 
-    ind = search_point(x3, p_list)
+    ind = search_point_certified(F3, x3, p_list)
     println("Result: Mapped to $ind")
     return x3, ind
 end

@@ -1,14 +1,23 @@
 export compile_edge_homotopy, compile_homotopy
 
-function compile_homotopy(H_eqs, x_vars, t_var; homogeneous=false)
+function _compiled_patch_template(n_vars::Int, patch_vector, patch_rng)
+    raw_patch = patch_vector === nothing ?
+        random_patch_vector(n_vars; rng=patch_rng) :
+        patch_vector
+    length(raw_patch) == n_vars || throw(DimensionMismatch("patch_vector length must match the number of projective variables."))
+    return ComplexF64[ComplexF64(a) for a in raw_patch]
+end
+
+function compile_homotopy(H_eqs, x_vars, t_var; homogeneous=false, projective=false, patch_vector=nothing, patch_rng=nothing)
     println("Compiling Direct Homotopy System...")
     
     target_vars = x_vars
+    use_projective_coords = homogeneous || projective
     
-    if homogeneous
+    if use_projective_coords
         @variables u0
         target_vars = [u0; x_vars]
-        H_eqs = [homogenize_poly(eq, x_vars, u0) for eq in H_eqs]
+        H_eqs = homogenize_system(H_eqs, x_vars, u0)
         println("-> System Homogenized. Vars: $target_vars")
     end
     
@@ -22,10 +31,11 @@ function compile_homotopy(H_eqs, x_vars, t_var; homogeneous=false)
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
     println("Compilation Done.")
-    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, homogeneous)
+    patch_template = projective ? _compiled_patch_template(length(target_vars), patch_vector, patch_rng) : ComplexF64[]
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, use_projective_coords, length(target_vars), projective, patch_template)
 end
 
-function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, const_vars=Num[])
+function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
     @variables t_var
     n_params = length(p_vars)
     n_consts = length(const_vars)
@@ -41,11 +51,12 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, const_v
     H_sub = [Symbolics.substitute(eq, subs_dict) for eq in F_eqs]
     
     target_vars = x_vars
+    use_projective_coords = homogeneous || projective
     
-    if homogeneous
+    if use_projective_coords
         @variables u0
         target_vars = [u0; x_vars]
-        H_sub = [homogenize_poly(eq, x_vars, u0) for eq in H_sub]
+        H_sub = homogenize_system(H_sub, x_vars, u0)
         println("-> System Homogenized. Vars: $target_vars")
     end
     
@@ -59,5 +70,6 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, const_v
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
     println("Compilation Done.")
-    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, homogeneous)
+    patch_template = projective ? _compiled_patch_template(length(target_vars), patch_vector, patch_rng) : ComplexF64[]
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, use_projective_coords, length(target_vars), projective, patch_template)
 end

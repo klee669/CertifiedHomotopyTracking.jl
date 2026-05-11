@@ -4,25 +4,33 @@ export straight_line_homotopy, linear_path, specified_system, max_degree
 # Straight Line Homotopy
 # ------------------------------------------------------------------------------
 
-function straight_line_homotopy(F, G, t)
+_straight_line_field_value(CC, value) = value isa Complex ? CC(real(value), imag(value)) : CC(value)
+
+function straight_line_homotopy(F, G, t; gamma=nothing)
     n = length(F)
     
     R = parent(F[1])
     CC = base_ring(R) 
     
-    gamma = CC(rand(Float64), rand(Float64))
+    gamma_val = gamma === nothing ? CC(rand(Float64), rand(Float64)) : _straight_line_field_value(CC, gamma)
     
     HR = parent(t)
     H = zeros(HR, 0)
     for i in 1:n
-        H = push!(H, (1 - t) * gamma * G[i] + t * F[i])
+        H = push!(H, (1 - t) * gamma_val * G[i] + t * F[i])
     end
     H
 end
 function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num}}}, 
     G_exprs::AbstractVector{<:Union{Num, Complex{Num}}}, 
     x_vars::AbstractVector{Num}; 
-    CCRing=AcbField(256), homogeneous=false)
+    CCRing=AcbField(256),
+    homogeneous=false,
+    projective=false,
+    patch_vector=nothing,
+    patch_rng=nothing,
+    gamma=nothing,
+)
     @variables __gamma_trick_internal_param__
     @variables t_var
 
@@ -33,9 +41,18 @@ function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num
     G_param = _parameterize_complex_coefficients!(G_exprs, x_vars, coeff_vars, coeff_values, coeff_map)
     
     H = [(1 - t_var) * __gamma_trick_internal_param__ * G_param[i] + t_var * F_param[i] for i in 1:length(F_param)]
-    compiled_H = compile_edge_homotopy(H, x_vars, [__gamma_trick_internal_param__]; homogeneous=homogeneous, const_vars=coeff_vars)
+    compiled_H = compile_edge_homotopy(
+        H,
+        x_vars,
+        [__gamma_trick_internal_param__];
+        homogeneous=homogeneous,
+        projective=projective,
+        patch_vector=patch_vector,
+        patch_rng=patch_rng,
+        const_vars=coeff_vars,
+    )
     
-    gamma_val = CCRing(complex(randn(), randn()))
+    gamma_val = gamma === nothing ? CCRing(complex(randn(), randn())) : _coefficient_value(CCRing, gamma)
     coeff_vals = [_coefficient_value(CCRing, coeff) for coeff in coeff_values]
     sys = make_edge_system(compiled_H, [gamma_val], [gamma_val], coeff_vals)
     
