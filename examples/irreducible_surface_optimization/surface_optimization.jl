@@ -37,7 +37,7 @@ compiled_homotopy = compile_edge_homotopy(F, vars, pars)
 # ------------------------------------------------------------------------------
 # 3. Solve Monodromy (Tracking)
 # ------------------------------------------------------------------------------
-edges = solve_monodromy(compiled_homotopy, vertices; max_roots=8)
+edges = solve_monodromy(compiled_homotopy, vertices; max_roots=8, show_progress=true)
 
 # ------------------------------------------------------------------------------
 # 4. GAP Group Construction

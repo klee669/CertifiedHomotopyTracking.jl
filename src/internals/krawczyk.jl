@@ -50,12 +50,15 @@ function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, 
     return inv_acb(J_val)
 end
 
-function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r::Number; rho=0.7)
+function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r; rho=0.7)
+    A = compute_preconditioner(sys, x, t)
+    return krawczyk_test(sys, x, t, r, A; rho=rho)
+end
+
+function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
     CC = sys.CC; RR = sys.RR
     n = length(x)
-    
-    A = compute_preconditioner(sys, x, t)
-    
+
     one_int = RR("0 +/- 1") 
     b_int = CC(one_int, one_int)
     B = [b_int for _ in 1:n]

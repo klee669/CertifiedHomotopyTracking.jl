@@ -82,7 +82,7 @@ function track_loop(bp, a, b, x0, r, p_list, i, F)
     x3 = certified_region(res_x3)
     if !succeeded(res_x3) return nothing, nothing end 
 
-    ind = search_point(x3, p_list)
+    ind = search_point_certified(F3, x3, p_list)
     println("Result: Mapped to $ind")
     return x3, ind
 end
@@ -143,7 +143,6 @@ println("Group G defined.")
 println("Structure Description:")
 println(GAP.Globals.StructureDescription(G)) 
 galois_width(G)
-
 
 
 

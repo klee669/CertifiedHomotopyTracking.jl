@@ -16,8 +16,7 @@ sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
 
 
-
-
+# ==============================================================================
 # ------------------------------------------------------------------------------
 # Example 1: Simple System
 # ------------------------------------------------------------------------------
@@ -85,7 +84,7 @@ H = straight_line_homotopy(F, G, [x_1, x_2, x_3, x_4, x_5]; CCRing=CC)
 
 point = [CC(1), CC(1), CC(-1), CC(-1), CC(1)]
 
-track_path(H, point)
+track_path(H, point; show_progress=true)
 
 # ------------------------------------------------------------------------------
 # Example 4: Random 4
@@ -108,7 +107,7 @@ F = [f1, f2, f3, f4]
 H = straight_line_homotopy(F,G,[x_1, x_2, x_3, x_4]; CCRing=CC)
 point = [CC(1), CC(1), CC(1), CC(1)]
 
-res = track_path(H, point)
+res = track_path(H, point; show_progress=true)
 
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
@@ -145,7 +144,206 @@ F = [f1, f2, f3, f4, f5, f6, f7, f8, f9]
 H = straight_line_homotopy(F,G,[a, b, c, d, e, f, g, h, i]; CCRing=CC)
 point = [CC(1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1)]
 
-res = track_path(H, point)
+res = track_path(H, point; show_progress=true)
 
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
+
+
+# ==============================================================================
+# Projective Tracking Examples
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Projective Example 1: Small quadratic system
+# ------------------------------------------------------------------------------
+@variables x y
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+F = [x^2 + 3*y - 4, y^2 + 3]
+G = [x^2 - 1, y^2 - 1]
+
+H_affine = straight_line_homotopy(F, G, [x, y]; CCRing=CC)
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+
+point = [CC(1), CC(-1)]
+
+res_affine = track_path(H_affine, point)
+res_projective = track_path(H_projective, point)
+
+solution(res_affine)
+solution(res_projective)
+projective_solution(res_projective)
+evaluate_H(H_projective, projective_solution(res_projective), CC(1))
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 2: Inspect input and refined starting points
+# ------------------------------------------------------------------------------
+@variables x y
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+F = [x^2 + y^2 - 2, x*y - 1//2]
+G = [x^2 - 1, y^2 - 1]
+
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+
+rough_point = [CC(1.05), CC(0.95)]
+res = track_path(H_projective, rough_point; h_init=0.05)
+
+succeeded(res)
+res.status
+solution(res)
+
+# These show what the user supplied and what the tracker used after initial refinement.
+convert_to_double_int.(input_start(res))
+convert_to_double_int.(refined_start(res))
+convert_to_double_int.(projective_input_start(res))
+convert_to_double_int.(projective_refined_start(res))
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 3: Random-looking cubic system in 3 variables
+# ------------------------------------------------------------------------------
+@variables x y z
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+F = [
+    0.37*x^3 - 0.21*x*y + 0.48*z^2 + y - 1,
+    -0.15*y^3 + 0.62*x*z + 0.18*x^2 - z + 0.25,
+    0.41*z^3 + 0.12*x*y*z - 0.77*y + x - 0.5,
+]
+G = [x^3 - 1, y^3 - 1, z^3 - 1]
+
+H_projective = straight_line_homotopy(F, G, [x, y, z]; CCRing=CC, projective=true, patch_vector=[1, 1, -1, 1])
+
+point = [CC(1), CC(1), CC(1)]
+res = track_path(H_projective, point; h_init=0.05)
+
+succeeded(res)
+res.status
+solution(res)
+projective_solution(res)
+evaluate_H(H_projective, projective_solution(res), CC(1))
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 4: Larger Katsura-style system
+# ------------------------------------------------------------------------------
+@variables a b c d e
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+f1 = a + 2*b + 2*c + 2*d + 2*e - 1
+f2 = a^2 + 2*b^2 + 2*c^2 + 2*d^2 + 2*e^2 - a
+f3 = 2*a*b + 2*b*c + 2*c*d + 2*d*e - b
+f4 = b^2 + 2*a*c + 2*b*d + 2*c*e - c
+f5 = 2*b*c + 2*a*d + 2*b*e - d
+
+g1 = a - 1
+g2 = b^2 - 1
+g3 = c^2 - 1
+g4 = d^2 - 1
+g5 = e^2 - 1
+
+F = [f1, f2, f3, f4, f5]
+G = [g1, g2, g3, g4, g5]
+
+H_affine = straight_line_homotopy(F, G, [a, b, c, d, e]; CCRing=CC, gamma=CC(1,1))
+H_projective = straight_line_homotopy(F, G, [a, b, c, d, e]; CCRing=CC, projective=true, patch_vector=[1, 1, -1, 1, -1, 1], gamma=CC(1,1))
+
+point = [CC(1), CC(-1), CC(-1), CC(-1), CC(-1)]
+res_affine = track_path(H_affine, point)
+res_projective = track_path(H_projective, point)
+
+succeeded(res)
+res.status
+solution(res)
+projective_solution(res)
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 5
+# ------------------------------------------------------------------------------
+@variables x y
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+F = [
+    (1//2)*x^2 + (2//3)*y - 1,
+    y^2 - (3//5),
+]
+G = [x^2 - 1, y^2 - 1]
+
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+
+point = [CC(1), CC(1)]
+res = track_path(H_projective, point; h_init=0.05)
+
+succeeded(res)
+res.status
+solution(res)
+evaluate_H(H_projective, projective_solution(res), CC(1))
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 6
+# ------------------------------------------------------------------------------
+# For rational functions, clear denominators first and track the polynomial numerators.
+@variables x y
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+# Original shape:
+#   (x^2 + y - 1) / (x + 2) = 0
+#   (x*y - 1//3) / (y + 3) = 0
+# Numerator-cleared polynomial system:
+F = [
+    x^3/y + y - 1,
+    x*y - 1//3,
+]
+G = [x^2 - 1, y^2 - 1]
+
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, -1, 1])
+
+point = [CC(1), CC(1)]
+res = track_path(H_projective, point; h_init=0.05)
+
+succeeded(res)
+res.status
+solution(res)
+
+
+
+# ------------------------------------------------------------------------------
+# Projective Example 7
+# ------------------------------------------------------------------------------
+@variables w x y z
+PREC_BITS = 256
+CC = AcbField(PREC_BITS)
+
+F = [
+    w^2 + 1/3*x*y - z + 1//5,
+    4/5*x^2 + y*z - w - 2//7,
+    y^2 + z*w - x + 3//11,
+    z^2 + w*x - y - 1//13,
+]
+G = [w^2 - 1, x^2 - 1, y^2 - 1, z^2 - 1]
+
+H_affine = straight_line_homotopy(F, G, [w, x, y, z]; CCRing=CC, gamma=CC(1,1))
+H_projective = straight_line_homotopy(F, G, [w, x, y, z]; CCRing=CC, projective=true, patch_vector=[2, 2, -1, 1, -1], gamma=CC(1,1))
+
+point = [CC(1), CC(-1), CC(1), CC(-1)]
+res = track_path(H_affine, point; h_init=0.05)
+res = track_path(H_projective, point; h_init=0.05)
+
+succeeded(res)
+res.status
+solution(res)
+projective_solution(res)
+
+
+

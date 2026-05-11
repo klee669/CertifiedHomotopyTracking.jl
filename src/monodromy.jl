@@ -2,7 +2,8 @@
 # High-Level Interface
 # ------------------------------------------------------------------------------
 # Exporting Vertex/Edge allows users to inspect results and build custom graphs
-export solve_monodromy, build_gap_group, vertex, edge, parameter_points, galois_width, Edge, Vertex, search_point, build_edges
+export solve_monodromy, build_gap_group, vertex, edge, parameter_points, galois_width,
+    Edge, Vertex, search_point, search_point_certified, same_root_krawczyk, build_edges
 
 # ------------------------------------------------------------------------------
 # Data Structures
@@ -42,8 +43,14 @@ function build_edges(vertices::Vector{Vertex}, edge_pairs::Vector{Tuple{Int, Int
 end
 
 
-function make_edge_system(compiled_sys::CompiledHomotopy, p_start::Vector{AcbFieldElem}, p_end::Vector{AcbFieldElem}, p_const::Vector{AcbFieldElem}=AcbFieldElem[])
-    return HCSystem(compiled_sys, p_start, p_end, p_const)
+function make_edge_system(
+    compiled_sys::CompiledHomotopy,
+    p_start::Vector{AcbFieldElem},
+    p_end::Vector{AcbFieldElem},
+    p_const::Vector{AcbFieldElem}=AcbFieldElem[];
+    patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
+)
+    return HCSystem(compiled_sys, p_start, p_end, p_const; patch_vector=patch_vector)
 end
 
 
@@ -52,7 +59,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    solve_monodromy(H, vertices; radius=0.1, max_roots=20, predictor=true)
+    solve_monodromy(H, vertices; radius=0.1, max_roots=20, predictor=true, show_progress=true)
 
 Tracks the complete graph to find the monodromy group.
 Handles InterruptException (Ctrl+C) gracefully to return partial results.
@@ -63,7 +70,8 @@ function solve_monodromy(
     vertices::Vector{Vertex};
     radius::Number = 0.1,
     max_roots::Int = 20,
-    predictor::Bool = true
+    predictor::Bool = true,
+    show_progress::Bool = true,
 )
     # 1. Initialize Edges (Connect all vertices)
     edges = Edge[]
@@ -111,8 +119,8 @@ function solve_monodromy(
                 n2_idx = search_point(e.node2.base_point, base_points)
                 
                 # Track Forward & Backward
-                track_edge!(H, e, true, radius; predictor=predictor, id1=n1_idx, id2=n2_idx)
-                track_edge!(H, e, false, radius; predictor=predictor, id1=n2_idx, id2=n1_idx)
+                track_edge!(H, e, true, radius; predictor=predictor, show_progress=show_progress, id1=n1_idx, id2=n2_idx)
+                track_edge!(H, e, false, radius; predictor=predictor, show_progress=show_progress, id1=n2_idx, id2=n1_idx)
                 
                 # Log status in real-time
                 counts = map(x -> length(x.correspondence12), edges)
@@ -137,7 +145,7 @@ function solve_monodromy(
 end
 
 """
-    track_edge!(H, edge, direction, radius; predictor, id1, id2)
+    track_edge!(H, edge, direction, radius; predictor, show_progress, id1, id2)
 
 Tracks paths along an edge. Updates the edge and vertices IN-PLACE.
 """
@@ -147,6 +155,7 @@ function track_edge!(
     from1to2::Bool, 
     r::Number;
     predictor = true,
+    show_progress = true,
     id1 = "?", # For logging only
     id2 = "?"
 )
@@ -181,7 +190,7 @@ function track_edge!(
         
         # Perform Tracking
         if predictor
-            y = track(Fab, start_point; show_display = true, refinement_threshold = 1/8)
+            y = track(Fab, start_point; show_display = show_progress, refinement_threshold = 1/8)
         else
             y = tracking_without_predictor(Fab, start_point)
         end
@@ -206,7 +215,16 @@ function track_edge!(
 end
 
 
-function track_edge!(compiled_sys::CompiledHomotopy, e::Edge, from1to2::Bool, edge_idx::Int, id_src::Int, id_dest::Int)
+function track_edge!(
+    compiled_sys::CompiledHomotopy,
+    e::Edge,
+    from1to2::Bool,
+    edge_idx::Int,
+    id_src::Int,
+    id_dest::Int;
+    show_progress::Bool=false,
+    root_match::Symbol=:heuristic,
+)
     if from1to2
         source_v, target_v = e.node1, e.node2
         c_forward, c_backward = e.correspondence12, e.correspondence21
@@ -234,10 +252,10 @@ function track_edge!(compiled_sys::CompiledHomotopy, e::Edge, from1to2::Bool, ed
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
-        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1)
+        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress)
         
         if success
-            dest_idx = search_point(y_end, target_sols)
+            dest_idx = _search_solution(sys_edge, y_end, target_sols; root_match=root_match)
             
             if dest_idx === nothing
                 push!(target_sols, y_end)
@@ -273,7 +291,14 @@ end
 
 
 
-function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex}, edges::Vector{Edge}; max_roots=20)
+function solve_monodromy(
+    compiled_sys::CompiledHomotopy,
+    vertices::Vector{Vertex},
+    edges::Vector{Edge};
+    max_roots=20,
+    show_progress::Bool=false,
+    root_match::Symbol=:heuristic,
+)
     iter = 0
     iter_stagnant = 0
     total_correspondences = 0
@@ -311,8 +336,8 @@ function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex
                 id1 = findfirst(==(e.node1), vertices)
                 id2 = findfirst(==(e.node2), vertices)
                 
-                track_edge!(compiled_sys, e, true, idx, id1, id2)
-                track_edge!(compiled_sys, e, false, idx, id2, id1)
+                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match)
+                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match)
 
                 counts = map(x -> length(x.correspondence12), edges)
                 @info "Status (Edge $idx done): Correspondences => $counts"
@@ -331,7 +356,13 @@ function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex
     
     return edges
 end
-function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex}; max_roots=20)
+function solve_monodromy(
+    compiled_sys::CompiledHomotopy,
+    vertices::Vector{Vertex};
+    max_roots=20,
+    show_progress::Bool=false,
+    root_match::Symbol=:heuristic,
+)
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
     for i in 1:length(vertices)-1
@@ -343,7 +374,7 @@ function solve_monodromy(compiled_sys::CompiledHomotopy, vertices::Vector{Vertex
         end
     end
     
-    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots)
+    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match)
 end
 
 # ------------------------------------------------------------------------------
@@ -429,6 +460,125 @@ function search_point(res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldEle
         end
     end
     return nothing
+end
+
+function _tracking_coordinates(sys::HCSystem, x::Vector{AcbFieldElem})
+    if has_projective_patch(sys) && length(x) == length(sys.patch_vector) - 1
+        return lift_to_patch(x, collect(sys.patch_vector))
+    elseif sys.homogeneous && !has_projective_patch(sys) && sys.compiled.n_vars != 0 && length(x) == sys.compiled.n_vars - 1
+        return [sys.CC(1); x]
+    end
+    return copy(x)
+end
+
+function _enclosing_center_radius(x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}; inflate=1.1, min_radius=1e-12)
+    length(x) == length(y) || throw(DimensionMismatch("Cannot compare roots with different dimensions."))
+    c = get_mid_vec((get_mid_vec(x) .+ get_mid_vec(y)) ./ 2)
+    return c, _enclosing_radius_about(c, x, y; inflate=inflate, min_radius=min_radius)
+end
+
+function _enclosing_radius_about(center::Vector{AcbFieldElem}, xs::Vector{AcbFieldElem}...; inflate=1.1, min_radius=1e-12)
+    r = min_radius
+    for x in xs
+        length(center) == length(x) || throw(DimensionMismatch("Cannot compare roots with different dimensions."))
+        for i in eachindex(center)
+            r = max(r, inflate * max_int_norm(x[i] - center[i]))
+        end
+    end
+    return r
+end
+
+function _krawczyk_same_on_hull(sys::HCSystem, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
+    center, radius = _enclosing_center_radius(x, y; inflate=inflate, min_radius=min_radius)
+    A = compute_preconditioner(sys, center, t)
+    passed, k_norm = krawczyk_test(sys, center, t, radius, A; rho=rho)
+    return passed, k_norm, radius
+end
+
+function _krawczyk_same_at_center(sys::HCSystem, center::Vector{AcbFieldElem}, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
+    radius = _enclosing_radius_about(center, x, y; inflate=inflate, min_radius=min_radius)
+    A = compute_preconditioner(sys, center, t)
+    passed, k_norm = krawczyk_test(sys, center, t, radius, A; rho=rho)
+    return passed, k_norm, radius
+end
+
+function _polish_for_root_comparison(sys::HCSystem, x::Vector{AcbFieldElem}, t; radius=1e-8)
+    center = get_mid_vec(x)
+    A = compute_preconditioner(sys, center, t)
+    polished, _, _, success = refine_moore_box(sys, center, t, radius, A)
+    return success ? get_mid_vec(polished) : center, success
+end
+
+function same_root_krawczyk(
+    sys::HCSystem,
+    x::Vector{AcbFieldElem},
+    y::Vector{AcbFieldElem};
+    t=1.0,
+    rho=0.7,
+    inflate=1.1,
+    min_radius=1e-12,
+)
+    x_tracking = _tracking_coordinates(sys, x)
+    y_tracking = _tracking_coordinates(sys, y)
+
+    try
+        k_norm = Inf
+        radius = Inf
+        radius_floors = (min_radius, max(min_radius, 1e-10), max(min_radius, 1e-8))
+        for radius_floor in radius_floors
+            passed, k_norm, radius = _krawczyk_same_on_hull(sys, x_tracking, y_tracking, t; rho=rho, inflate=inflate, min_radius=radius_floor)
+            passed && return :same, k_norm, radius
+        end
+
+        x_polished, x_success = _polish_for_root_comparison(sys, x_tracking, t)
+        y_polished, y_success = _polish_for_root_comparison(sys, y_tracking, t)
+        if x_success || y_success
+            centers = (
+                get_mid_vec((x_polished .+ y_polished) ./ 2),
+                x_polished,
+                y_polished,
+            )
+            for radius_floor in radius_floors
+                for center in centers
+                    passed, k_norm, radius = _krawczyk_same_at_center(sys, center, x_polished, y_polished, t; rho=rho, inflate=inflate, min_radius=radius_floor)
+                    passed && return :same, k_norm, radius
+                end
+            end
+        end
+
+        return :unknown, k_norm, radius
+    catch
+        return :unknown, Inf, Inf
+    end
+end
+
+function search_point_certified(
+    sys::HCSystem,
+    res::Vector{AcbFieldElem},
+    pool::Vector{Vector{AcbFieldElem}};
+    t=1.0,
+    rho=0.7,
+    inflate=1.1,
+    min_radius=1e-12,
+)
+    for (idx, sol) in enumerate(pool)
+        status, _, _ = same_root_krawczyk(sys, res, sol; t=t, rho=rho, inflate=inflate, min_radius=min_radius)
+        status == :same && return idx
+    end
+    return nothing
+end
+
+function _search_solution(sys::HCSystem, res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldElem}}; root_match::Symbol=:heuristic)
+    if root_match == :heuristic
+        return search_point(res, pool)
+    elseif root_match == :certified
+        return search_point_certified(sys, res, pool)
+    elseif root_match == :certified_or_heuristic
+        idx = search_point_certified(sys, res, pool)
+        return idx === nothing ? search_point(res, pool) : idx
+    else
+        throw(ArgumentError("Unknown root_match=$root_match. Use :heuristic, :certified, or :certified_or_heuristic."))
+    end
 end
 
 function parameter_points(v1::Vertex, sz_p::Int, n_vertices::Int)
@@ -562,4 +712,3 @@ function get_permutations(rc::Number, E::Vector{Edge})
 
     return perms
 end
-

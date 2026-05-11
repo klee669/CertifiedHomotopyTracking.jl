@@ -231,10 +231,16 @@ function hermite_tracking(
        end =#
 
     X  = hermite_predictor(H, x, xprev, v, vprev, hprev)
-    if tracking == "non-truncate"
+    if tracking in ("non-truncate", "certified")
         tm = krawczyk_operator_taylor_model_original(H, X, t, A, r)
-    else
+    elseif tracking in ("truncate", "heuristic-truncate")
+        Base.depwarn(
+            "tracking=\"truncate\" drops terms from the Taylor-model Krawczyk expression and should be treated as heuristic, not certified. Use tracking=\"non-truncate\" or \"certified\" for validated tracking.",
+            :hermite_tracking,
+        )
         tm = krawczyk_operator_taylor_model(H, X, t, A, r)
+    else
+        throw(ArgumentError("Unknown tracking mode $tracking. Use \"non-truncate\", \"certified\", or \"heuristic-truncate\"."))
     end
 
     T = CCi("$radii +/- $radii")
