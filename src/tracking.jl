@@ -1,4 +1,4 @@
-export track, tracking_without_predictor, track_path
+export track, tracking_without_predictor, track_path, track_path_adaptive_precision
 
 function _print_track_progress(iter, t, h)
     msg = "Iter $iter: t=$(round(Float64(t); sigdigits=12)), h=$(round(Float64(h); sigdigits=12))"
@@ -9,6 +9,57 @@ end
 function _clear_track_progress()
     print("\r\033[K")
     flush(stdout)
+end
+
+function _convert_system_precision(sys::HCSystem, bits::Integer)
+    CC = AcbField(bits)
+    patch_vector = AcbFieldElem[CC(a) for a in sys.patch_vector]
+
+    converted = if isempty(sys.p_start) && isempty(sys.p_const)
+        HCSystem(sys.compiled, CC; patch_vector=patch_vector)
+    else
+        HCSystem(
+            sys.compiled,
+            AcbFieldElem[CC(a) for a in sys.p_start],
+            AcbFieldElem[CC(a) for a in sys.p_end],
+            AcbFieldElem[CC(a) for a in sys.p_const];
+            patch_vector=patch_vector,
+        )
+    end
+    converted.patch_idx = sys.patch_idx
+    return converted
+end
+
+function _normalized_precision_schedule(sys::HCSystem, precisions)
+    original_precision = precision(sys.CC)
+    schedule = Int[]
+    for bits in precisions
+        bits_int = Int(bits)
+        bits_int < 53 && throw(ArgumentError("Precision schedule entries must be at least 53 bits."))
+        bits_int in schedule || push!(schedule, bits_int)
+    end
+    original_precision in schedule || push!(schedule, original_precision)
+    return schedule
+end
+
+function track_path_adaptive_precision(
+    sys::HCSystem,
+    x_start_input::Vector{AcbFieldElem};
+    precisions=(min(128, precision(sys.CC)), precision(sys.CC)),
+    kwargs...,
+)
+    last_result = nothing
+    original_precision = precision(sys.CC)
+
+    for bits in _normalized_precision_schedule(sys, precisions)
+        trial_sys = bits == original_precision ? sys : _convert_system_precision(sys, bits)
+        trial_x = AcbFieldElem[trial_sys.CC(x) for x in x_start_input]
+        result = track_path(trial_sys, trial_x; kwargs...)
+        succeeded(result) && return result
+        last_result = result
+    end
+
+    return last_result
 end
 
 # tracking without predictor

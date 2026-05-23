@@ -224,6 +224,8 @@ function track_edge!(
     id_dest::Int;
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    adaptive_precision::Bool=false,
+    precisions=(96, 128, 192, 256),
 )
     if from1to2
         source_v, target_v = e.node1, e.node2
@@ -252,9 +254,15 @@ function track_edge!(
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
-        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress)
+        result = if adaptive_precision
+            track_path_adaptive_precision(sys_edge, start_point; precisions=precisions, t_end=1.0, h_init=0.1, show_progress=show_progress)
+        else
+            track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress)
+        end
+        y_end, success = result
         
         if success
+            y_end = AcbFieldElem[sys_edge.CC(z) for z in y_end]
             dest_idx = _search_solution(sys_edge, y_end, target_sols; root_match=root_match)
             
             if dest_idx === nothing
@@ -298,6 +306,8 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    adaptive_precision::Bool=false,
+    precisions=(96, 128, 192, 256),
 )
     iter = 0
     iter_stagnant = 0
@@ -336,8 +346,8 @@ function solve_monodromy(
                 id1 = findfirst(==(e.node1), vertices)
                 id2 = findfirst(==(e.node2), vertices)
                 
-                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match)
-                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match)
+                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match, adaptive_precision=adaptive_precision, precisions=precisions)
+                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match, adaptive_precision=adaptive_precision, precisions=precisions)
 
                 counts = map(x -> length(x.correspondence12), edges)
                 @info "Status (Edge $idx done): Correspondences => $counts"
@@ -362,6 +372,8 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    adaptive_precision::Bool=false,
+    precisions=(96, 128, 192, 256),
 )
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
@@ -374,7 +386,7 @@ function solve_monodromy(
         end
     end
     
-    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match)
+    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match, adaptive_precision=adaptive_precision, precisions=precisions)
 end
 
 # ------------------------------------------------------------------------------

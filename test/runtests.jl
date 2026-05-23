@@ -65,6 +65,22 @@ end
     @test_throws ArgumentError repatch([1.0, 2.0], [2.0, -1.0])
 end
 
+@testset "Krawczyk validation regression" begin
+    @variables x y
+    CC = AcbField(128)
+
+    F = [x^2 + 3*y - 4, y^2 + 3]
+    G = [x^2 - 1, y^2 - 1]
+    H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=1 + im)
+    res = track_path(H, [CC(1), CC(-1)]; h_init=0.05)
+
+    passed, k_norm = krawczyk_test(H, certified_region(res), CC(1), res.final_radius; rho=res.rho)
+
+    @test succeeded(res)
+    @test passed
+    @test k_norm < res.rho
+end
+
 @testset "Projective tracking" begin
     @variables x
     CC = AcbField(128)
@@ -75,6 +91,7 @@ end
 
     H_affine = straight_line_homotopy(F, G, [x]; CCRing=CC)
     res_affine = track_path(H_affine, start; h_init=0.05)
+    adaptive_affine = track_path_adaptive_precision(H_affine, start; precisions=(96, 128), h_init=0.05)
 
     H_projective = straight_line_homotopy(F, G, [x]; CCRing=CC, projective=true, patch_vector=[1, 1])
     res_projective = track_path(H_projective, start; h_init=0.05)
@@ -84,8 +101,10 @@ end
     direct_projective = track_path(sys_projective, start; h_init=0.05)
 
     @test succeeded(res_affine)
+    @test succeeded(adaptive_affine)
     @test succeeded(res_projective)
     @test succeeded(direct_projective)
+    @test precision(parent(certified_region(adaptive_affine)[1])) == 96
     @test length(input_start(res_projective)) == 1
     @test length(refined_start(res_projective)) == 1
     @test length(projective_input_start(res_projective)) == 2

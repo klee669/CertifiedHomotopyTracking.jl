@@ -86,6 +86,7 @@ vertices = [v1, v2, v3]
 
 compiled_homotopy = compile_edge_homotopy(f, x_vars, p_vars)
 
+if get(ENV, "CHT_27_LINES_SETUP_ONLY", "0") != "1"
 
 println("\n[Loop 1] Red Loop")
 p1 = generate_perm(compiled_homotopy, red1, red2, red3, p_list) #[8, 2, 3, 4, 24, 6, 7, 1, 27, 23, 11, 16, 13, 14, 25, 12, 17, 18, 19, 20, 21, 22, 10, 5, 15, 26, 9]
@@ -119,3 +120,5 @@ println(GAP.Globals.StructureDescription(G)) # C2 x C2 (= K4)
 
 println("Galois Width:")
 gw = galois_width(G) # 2
+
+end

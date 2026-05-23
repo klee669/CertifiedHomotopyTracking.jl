@@ -55,7 +55,7 @@ function refine_moore_box(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r_i
             y = get_mid_vec(y_next)
 
             Jy = evaluate_Jac(sys, y, t)
-            U = inv_acb(Jy)
+            U = inv_acb(Jy, sys.CC)
         end
     end
     return y, s, U, false

@@ -1,25 +1,24 @@
 export CompiledHomotopy, HCSystem, TMCache, evaluate_H, evaluate_Jac, evaluate_dt
 
-struct CompiledHomotopy
-    func_H::Function
-    func_Jx::Function
-    func_dt::Function
+struct CompiledHomotopy{FH,FJ,FD}
+    func_H::FH
+    func_Jx::FJ
+    func_dt::FD
     homogeneous::Bool
     n_vars::Int
     projective_patch::Bool
     patch_template::Vector{ComplexF64}
 end
-CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, homogeneous, 0, false, ComplexF64[])
-CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool, n_vars::Int) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, homogeneous, n_vars, false, ComplexF64[])
-
+CompiledHomotopy(func_H::FH, func_Jx::FJ, func_dt::FD, homogeneous::Bool) where {FH,FJ,FD} =
+    CompiledHomotopy{FH,FJ,FD}(func_H, func_Jx, func_dt, homogeneous, 0, false, ComplexF64[])
+CompiledHomotopy(func_H::FH, func_Jx::FJ, func_dt::FD, homogeneous::Bool, n_vars::Int) where {FH,FJ,FD} =
+    CompiledHomotopy{FH,FJ,FD}(func_H, func_Jx, func_dt, homogeneous, n_vars, false, ComplexF64[])
 function Base.show(io::IO, compiled::CompiledHomotopy)
     print(io, "CompiledHomotopy(Homogeneous: ", compiled.homogeneous, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
 end
 
-mutable struct HCSystem
-    compiled::CompiledHomotopy
+mutable struct HCSystem{CH<:CompiledHomotopy}
+    compiled::CH
     p_start::Tuple{Vararg{AcbFieldElem}}
     p_end::Tuple{Vararg{AcbFieldElem}}
     p_const::Tuple{Vararg{AcbFieldElem}}
@@ -31,12 +30,12 @@ mutable struct HCSystem
     RR::ArbField
     
     function HCSystem(
-        compiled::CompiledHomotopy,
+        compiled::CH,
         p_start::Vector{AcbFieldElem},
         p_end::Vector{AcbFieldElem},
         p_const::Vector{AcbFieldElem}=AcbFieldElem[];
         patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
-    )
+    ) where {CH<:CompiledHomotopy}
         CC = !isempty(p_start) ? parent(p_start[1]) : parent(p_const[1])
         RR = ArbField(precision(CC))
         patch_values = isempty(patch_vector) && compiled.projective_patch ?
@@ -46,10 +45,10 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.homogeneous, 1, patch_tuple, CC, RR)
+        new{CH}(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.homogeneous, 1, patch_tuple, CC, RR)
     end
 
-    function HCSystem(compiled::CompiledHomotopy, CC::AcbField; patch_vector::Vector{AcbFieldElem}=AcbFieldElem[])
+    function HCSystem(compiled::CH, CC::AcbField; patch_vector::Vector{AcbFieldElem}=AcbFieldElem[]) where {CH<:CompiledHomotopy}
         RR = ArbField(precision(CC))
         patch_values = isempty(patch_vector) && compiled.projective_patch ?
             [CC(a) for a in compiled.patch_template] :
@@ -58,7 +57,7 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, (), (), (), compiled.homogeneous, 1, patch_tuple, CC, RR)
+        new{CH}(compiled, (), (), (), compiled.homogeneous, 1, patch_tuple, CC, RR)
     end
 end
 
@@ -100,7 +99,15 @@ function evaluate_Jac(sys::HCSystem, x, t)
     CC = sys.CC 
     J_sys = sys.compiled.func_Jx(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
     if !sys.homogeneous
-        return J_sys
+        if eltype(J_sys) === AcbFieldElem
+            return J_sys
+        end
+        n_rows, n_cols = size(J_sys)
+        J_typed = Matrix{AcbFieldElem}(undef, n_rows, n_cols)
+        for i in 1:n_rows, j in 1:n_cols
+            J_typed[i, j] = CC(J_sys[i, j])
+        end
+        return J_typed
     else
         n_rows, n_cols = size(J_sys)
         J_aug = Matrix{AcbFieldElem}(undef, n_rows + 1, n_cols)

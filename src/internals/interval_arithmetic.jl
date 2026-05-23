@@ -36,20 +36,20 @@ function max_int_norm(interval::AcbFieldElem)
     i = imag(interval);
     rmax = convert(Float64, abs(Nemo.midpoint(r)) + Nemo.radius(r));
     imax = convert(Float64, abs(Nemo.midpoint(i)) + Nemo.radius(i));
-    maximum([rmax, imax])
+    max(rmax, imax)
 end
 
 function max_norm(intvec::Union{Matrix{AcbFieldElem},AcbMatrix})
     sz = size(intvec);
     nr = sz[1];
     nc = sz[2];
-    abs_list = [];
+    result = 0.0
     for i in 1:nr
         for j in 1:nc
-            push!(abs_list,max_int_norm(intvec[i,j]));
+            result = max(result, max_int_norm(intvec[i,j]));
         end
-    end 
-    maximum(abs_list)
+    end
+    result
 end
 
 
@@ -119,7 +119,13 @@ end
 function mag_complex(z::AcbFieldElem)
     return Float64(abs(z))
 end
-norm_inf(v::AbstractArray{AcbFieldElem}) = maximum(mag_complex.(v))
+function norm_inf(v::AbstractArray{AcbFieldElem})
+    result = 0.0
+    for z in v
+        result = max(result, mag_complex(z))
+    end
+    return result
+end
 
 function get_mid(z::AcbFieldElem)
     CC = parent(z) 

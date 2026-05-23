@@ -47,12 +47,24 @@ function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, 
     x_mid = get_mid_vec(x)
     t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
     J_val = evaluate_Jac(sys, x_mid, t_mid) 
-    return inv_acb(J_val)
+    return inv_acb(J_val, CC)
 end
 
 function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r; rho=0.7)
     A = compute_preconditioner(sys, x, t)
     return krawczyk_test(sys, x, t, r, A; rho=rho)
+end
+
+function _krawczyk_linear_part(A::AbstractMatrix{AcbFieldElem}, J::AbstractMatrix{AcbFieldElem}, B::AbstractVector{AcbFieldElem}, CC::AcbField)
+    AJ = A * J
+    one = CC(1)
+    zero = CC(0)
+    n = length(B)
+    M = Matrix{AcbFieldElem}(undef, n, n)
+    @inbounds for i in 1:n, j in 1:n
+        M[i, j] = (i == j ? one : zero) - AJ[i, j]
+    end
+    return M * B
 end
 
 function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
@@ -68,13 +80,7 @@ function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::
     Jx = evaluate_Jac(sys, x_expanded, t)
     
     term1 = -(A * fx) ./ CC(r)
-    
-    I_mat = Matrix{AcbFieldElem}(undef, n, n)
-    for i in 1:n, j in 1:n
-        I_mat[i,j] = (i == j ? CC(1) : CC(0))
-    end
-    
-    term2 = (I_mat - A * Jx) * B
+    term2 = _krawczyk_linear_part(A, Jx, B, CC)
     K = term1 + term2
     k_norm = norm_inf(K)
     
@@ -102,13 +108,7 @@ function validate_step_taylor3(sys::HCSystem, X_tm::Vector{TaylorModel3}, t_star
     J_val = evaluate_Jac(sys, X_expanded, T_expanded)
     
     term1 = -(A * F_val) ./ CC(r)
-    
-    I_mat = Matrix{AcbFieldElem}(undef, n, n)
-    for i in 1:n, j in 1:n
-        I_mat[i,j] = (i == j ? CC(1) : CC(0))
-    end
-    
-    term2 = (I_mat - A * J_val) * B
+    term2 = _krawczyk_linear_part(A, J_val, B, CC)
     
     K = term1 + term2
     norm_K = norm_inf(K)

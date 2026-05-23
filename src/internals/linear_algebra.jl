@@ -143,8 +143,7 @@ function create_seed_pair(
 end
 
 
-function inv_acb(A::AbstractMatrix)
-    CC = eltype(A) === AcbFieldElem ? parent(A[1,1]) : parent(first(A))
+function inv_acb(A::AbstractMatrix, CC::AcbField=eltype(A) === AcbFieldElem ? parent(A[1,1]) : parent(first(A)))
     n = size(A, 1)
     
     if eltype(A) !== AcbFieldElem
