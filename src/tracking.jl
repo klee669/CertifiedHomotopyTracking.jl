@@ -220,6 +220,9 @@ function track_path(
         x = copy(x_start_input)
     end
     tracking_input_start = copy(x)
+    tm_cache = TMCache(CC)
+    validation_cache = KrawczykValidationCache(CC, RR, length(x))
+    x_next_interval = [CC(0) for _ in 1:length(x)]
 
     A = compute_preconditioner(sys, x, t)
     x, r, A, success = refine_moore_box(sys, x, t, r, A)
@@ -303,14 +306,15 @@ function track_path(
                 X_tm = construct_hermite_predictor_tm(sys, x, x_prev, v, v_prev, h_prev, h)
             end
 
-            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A; rho=rho)
+            passed, k_norm = validate_step_taylor3(sys, X_tm, t, h, Float64(r), A; rho=rho, cache=validation_cache)
             last_k_norm = k_norm
 
             if passed
                 step_accepted = true
                 accepted_steps += 1
-                cache = TMCache(CC)
-                x_next_interval = [evaluate_taylor!(CC(0), tm, cache) for tm in X_tm]
+                for i in eachindex(X_tm)
+                    evaluate_taylor!(x_next_interval[i], X_tm[i], tm_cache)
+                end
                 x_new = get_mid_vec(x_next_interval)
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h

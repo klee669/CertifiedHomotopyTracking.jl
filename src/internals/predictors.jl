@@ -103,7 +103,7 @@ function construct_hermite_predictor_tm(sys::HCSystem, x, x_prev, v, v_prev, h_p
     n = length(x)
     h_arb = RR(h_curr) 
     
-    tm_vec = Vector{TaylorModel3}(undef, n)
+    tm_vec = Vector{TaylorModel3{AcbFieldElem,ArbFieldElem}}(undef, n)
     for i in 1:n
         tm_vec[i] = TaylorModel3(c0[i], c1[i], c2[i], c3[i], CC(0), h_arb)
     end
