@@ -21,6 +21,8 @@ struct TrackResult
     rho::Float64
     patch_idx::Int
     near_infinity::Bool
+    initial_precision::Int
+    final_precision::Int
     message::String
 end
 
@@ -57,6 +59,8 @@ TrackResult(
     rho,
     patch_idx,
     false,
+    0,
+    0,
     message,
 )
 
@@ -93,11 +97,42 @@ function Base.show(io::IO, res::TrackResult)
     if res.near_infinity
         print(io, ", near_infinity=true")
     end
+    if res.initial_precision > 0
+        print(io, ", precision=", res.initial_precision, "->", res.final_precision)
+    end
     if isfinite(res.final_krawczyk_norm)
         print(io, ", final_krawczyk_norm=", res.final_krawczyk_norm)
     end
     print(io, ", approx=", approximate_solution(res))
     print(io, ")")
+end
+
+function _result_with_field(res::TrackResult, CC::AcbField)
+    isempty(res.root) || parent(res.root[1]) !== CC || return res
+    convert_vec(values) = _convert_acb_vector(CC, values)
+    return TrackResult(
+        convert_vec(res.root),
+        convert_vec(res.projective_root),
+        convert_vec(res.input_start),
+        convert_vec(res.refined_start),
+        convert_vec(res.projective_input_start),
+        convert_vec(res.projective_refined_start),
+        res.success,
+        res.status,
+        res.iterations,
+        res.accepted_steps,
+        res.rejected_steps,
+        res.final_t,
+        res.final_h,
+        res.final_radius,
+        res.final_krawczyk_norm,
+        res.rho,
+        res.patch_idx,
+        res.near_infinity,
+        res.initial_precision,
+        res.final_precision,
+        res.message,
+    )
 end
 
 function _projective_to_affine(sys::HCSystem, X; affine_chart_atol=1e-10)
@@ -134,11 +169,12 @@ function _track_result(
     r,
     k_norm,
     rho,
-    message;
+    message::AbstractString;
     affine_chart_atol=1e-10,
     input_start=AcbFieldElem[],
     tracking_input_start=AcbFieldElem[],
     tracking_refined_start=AcbFieldElem[],
+    initial_precision=precision(sys.CC),
 )
     root = copy(x)
     projective_root = AcbFieldElem[]
@@ -187,6 +223,8 @@ function _track_result(
         Float64(rho),
         sys.patch_idx,
         result_near_infinity,
+        initial_precision,
+        precision(sys.CC),
         result_message,
     )
 end

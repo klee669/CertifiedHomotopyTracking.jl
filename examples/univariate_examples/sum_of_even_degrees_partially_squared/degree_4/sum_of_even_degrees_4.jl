@@ -144,7 +144,7 @@ for n_nodes in 3:6
                 i += 1
 
             catch e
-                println("⚠️ Error at i=$i: $(e)")
+                println("Error at i=$i: $(e)")
             continue
         end
                 

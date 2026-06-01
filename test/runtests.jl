@@ -106,3 +106,33 @@ end
     @test maximum(abs.(convert_to_double_int.(projective_solution(large_projective)))) <= 2
     @test isapprox(solution(large_projective)[1], 100 + 0im; atol=1e-6)
 end
+
+@testset "Adaptive precision tracking" begin
+    @variables x
+    CC = AcbField(128)
+    H = straight_line_homotopy([x - 2], [x - 1], [x]; CCRing=CC)
+    start = [CC(1)]
+
+    sys53 = system_with_precision(H, 53)
+    @test precision(sys53.CC) == 53
+    @test precision(H.CC) == 128
+
+    adaptive = track_path(H, start; h_init=0.05)
+    fixed = track_path(H, start; h_init=0.05, adaptive_precision=false)
+    promoted = track_path(H, start; h_init=0.05, rho=0.1, max_precision=106, precision_rejection_threshold=1)
+
+    @test succeeded(adaptive)
+    @test adaptive.initial_precision == 53
+    @test adaptive.final_precision == 53
+    @test precision(parent(adaptive.root[1])) == 128
+
+    @test succeeded(fixed)
+    @test fixed.initial_precision == 128
+    @test fixed.final_precision == 128
+
+    @test !succeeded(promoted)
+    @test promoted.status == :step_too_small
+    @test promoted.initial_precision == 53
+    @test promoted.final_precision == 106
+    @test precision(parent(promoted.root[1])) == 128
+end

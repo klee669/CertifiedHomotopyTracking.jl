@@ -8,7 +8,7 @@ CC = AcbField(PREC_BITS)
 
 F = [x^2 + 3*y - 4, y^2 + 3]
 G = [x^2 - 1, y^2 - 1]
-H = straight_line_homotopy(F, G, [x, y]; CCRing=CC)
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5,0.5))
 
 start_point = [CC(1), CC(-1)]
 res = track_path(H, start_point)
@@ -141,7 +141,7 @@ g9 = i^2-1
 G = [g1, g2, g3, g4, g5, g6, g7, g8, g9]
 F = [f1, f2, f3, f4, f5, f6, f7, f8, f9]
 
-H = straight_line_homotopy(F,G,[a, b, c, d, e, f, g, h, i]; CCRing=CC)
+H = straight_line_homotopy(F,G,[a, b, c, d, e, f, g, h, i]; CCRing=CC, gamma=CC(0.5,0.5))
 point = [CC(1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1), CC(-1)]
 
 res = track_path(H, point; show_progress=true)

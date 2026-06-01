@@ -49,6 +49,15 @@ max_norm(hcat(evaluate_H(H, certified_region(res), CC(1)))) # certified residual
 
 ```
 
+`track_path` uses adaptive precision by default. It starts at 53 bits, retries
+with higher precision when certified refinement fails or Krawczyk validation
+stagnates, and never relaxes the certification criterion. To compare with the
+previous fixed-precision behavior, use:
+
+```julia
+fixed_res = track_path(H, point; adaptive_precision=false)
+```
+
 
 ### 2. Certified monodromy group computation
 
@@ -93,6 +102,10 @@ compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars; homogeneous=f
 # 5. Solve monodromy (Tracking)
 edges = solve_monodromy(compiled_homotopy, vertices; max_roots=4)
 
+# Fixed-precision comparison:
+# edges = solve_monodromy(compiled_homotopy, vertices;
+#     max_roots=4, track_options=(; adaptive_precision=false))
+
 # 6. GAP analysis
 G = build_gap_group(4, edges) # Find a group of size 4 from edge correspondences
 
@@ -104,5 +117,3 @@ if G !== nothing
     println(gw) # 2
 end
 ```
-
-

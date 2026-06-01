@@ -131,7 +131,7 @@ function solve_monodromy(
     catch e
         # [Core Feature] Handle Ctrl+C to preserve data
         if isa(e, InterruptException)
-            @warn "⚠️ Computation Interrupted by User!"
+            @warn "Computation interrupted by user."
             @warn "Returning vertices and edges computed SO FAR."
             @warn "You can resume or analyze the partial data."
             return edges
@@ -224,6 +224,7 @@ function track_edge!(
     id_dest::Int;
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    track_options::NamedTuple=(;),
 )
     if from1to2
         source_v, target_v = e.node1, e.node2
@@ -252,7 +253,7 @@ function track_edge!(
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
-        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress)
+        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress, track_options...)
         
         if success
             dest_idx = _search_solution(sys_edge, y_end, target_sols; root_match=root_match)
@@ -298,6 +299,7 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    track_options::NamedTuple=(;),
 )
     iter = 0
     iter_stagnant = 0
@@ -323,12 +325,12 @@ function solve_monodromy(
             println("-"^70)
             
             if all(e -> length(e.correspondence12) == max_roots, edges)
-                println("🎉 Success! All edges reached $max_roots correspondences.")
+                println("Success! All edges reached $max_roots correspondences.")
                 break
             end
 
             if iter_stagnant > 10
-                println("⚠️ Stopping: No new solutions found after 10 iterations.")
+                println("Stopping: No new solutions found after 10 iterations.")
                 break
             end
             
@@ -336,8 +338,8 @@ function solve_monodromy(
                 id1 = findfirst(==(e.node1), vertices)
                 id2 = findfirst(==(e.node2), vertices)
                 
-                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match)
-                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match)
+                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match, track_options=track_options)
+                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match, track_options=track_options)
 
                 counts = map(x -> length(x.correspondence12), edges)
                 @info "Status (Edge $idx done): Correspondences => $counts"
@@ -346,7 +348,7 @@ function solve_monodromy(
         
     catch e
         if isa(e, InterruptException)
-            println("\n\n⚠️ Computation Interrupted by User!")
+            println("\n\nComputation interrupted by user.")
             println("Returning vertices and edges computed SO FAR.")
             return edges
         else
@@ -362,6 +364,7 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    track_options::NamedTuple=(;),
 )
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
@@ -374,7 +377,7 @@ function solve_monodromy(
         end
     end
     
-    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match)
+    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match, track_options=track_options)
 end
 
 # ------------------------------------------------------------------------------
