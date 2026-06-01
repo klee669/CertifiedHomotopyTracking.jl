@@ -163,16 +163,6 @@ function BenchmarkMetrics(mode::String, trial::Int)
     return BenchmarkMetrics(mode, trial, 0.0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0.0, 0.0)
 end
 
-function patch_template_for(nvars::Int)
-    raw = ComplexF64[cis(0.37 * k) for k in 0:nvars-1]
-    scale = sqrt(sum(abs2, raw))
-    return ComplexF64[a / scale for a in raw]
-end
-
-function patch_vector_for(CC, nvars::Int)
-    return [CC(real(a), imag(a)) for a in patch_template_for(nvars)]
-end
-
 mutable struct HighLevelMetrics
     mode::String
     trial::Int
@@ -183,9 +173,8 @@ mutable struct HighLevelMetrics
 end
 
 function compile_benchmark_system(F, vars, pars; projective::Bool)
-    patch_vector = projective ? patch_template_for(length(vars) + 1) : nothing
     return redirect_stdout(devnull) do
-        compile_edge_homotopy(F, vars, pars; projective=projective, patch_vector=patch_vector)
+        compile_edge_homotopy(F, vars, pars; projective=projective)
     end
 end
 
@@ -207,7 +196,6 @@ function track_edge_diagnostic!(
     e::Edge,
     from1to2::Bool,
     metrics::BenchmarkMetrics;
-    patch_vector=AcbFieldElem[],
     h_init=0.1,
     max_paths=0,
     root_match::Symbol=:heuristic,
@@ -227,7 +215,7 @@ function track_edge_diagnostic!(
     isempty(untracked_indices) && return
 
     metrics.edge_calls += 1
-    sys_edge = make_edge_system(compiled_sys, source_v.base_point, target_v.base_point; patch_vector=patch_vector)
+    sys_edge = make_edge_system(compiled_sys, source_v.base_point, target_v.base_point)
 
     for src_idx in untracked_indices
         max_paths > 0 && metrics.path_attempts >= max_paths && return
@@ -288,7 +276,6 @@ function solve_monodromy_diagnostic!(
     edges,
     metrics::BenchmarkMetrics;
     max_roots=8,
-    patch_vector=AcbFieldElem[],
     h_init=0.1,
     max_paths=0,
     root_match::Symbol=:heuristic,
@@ -312,9 +299,9 @@ function solve_monodromy_diagnostic!(
         iter_stagnant > 10 && break
 
         for e in edges
-            track_edge_diagnostic!(compiled_sys, e, true, metrics; patch_vector=patch_vector, h_init=h_init, max_paths=max_paths, root_match=root_match)
+            track_edge_diagnostic!(compiled_sys, e, true, metrics; h_init=h_init, max_paths=max_paths, root_match=root_match)
             max_paths > 0 && metrics.path_attempts >= max_paths && break
-            track_edge_diagnostic!(compiled_sys, e, false, metrics; patch_vector=patch_vector, h_init=h_init, max_paths=max_paths, root_match=root_match)
+            track_edge_diagnostic!(compiled_sys, e, false, metrics; h_init=h_init, max_paths=max_paths, root_match=root_match)
             max_paths > 0 && metrics.path_attempts >= max_paths && break
         end
     end
@@ -332,7 +319,6 @@ function run_trial(mode::String, trial::Int, options)
 
     projective = mode == "projective"
     compiled = compile_benchmark_system(F, vars, pars; projective=projective)
-    patch_vector = projective ? patch_vector_for(CC, length(vars) + 1) : AcbFieldElem[]
 
     metrics.total_time = @elapsed solve_monodromy_diagnostic!(
         compiled,
@@ -340,7 +326,6 @@ function run_trial(mode::String, trial::Int, options)
         edges,
         metrics;
         max_roots=options.max_roots,
-        patch_vector=patch_vector,
         h_init=options.h_init,
         max_paths=options.max_paths,
         root_match=options.root_match,

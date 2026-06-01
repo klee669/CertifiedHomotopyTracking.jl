@@ -5,15 +5,18 @@ struct CompiledHomotopy
     func_H::Function
     func_Jx::Function
     func_dt::Function
+    chart_func_H::Vector{Function}
+    chart_func_Jx::Vector{Function}
+    chart_func_dt::Vector{Function}
     homogeneous::Bool
     n_vars::Int
     projective_patch::Bool
     patch_template::Vector{ComplexF64}
 end
 CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, homogeneous, 0, false, ComplexF64[])
+    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], homogeneous, 0, false, ComplexF64[])
 CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool, n_vars::Int) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, homogeneous, n_vars, false, ComplexF64[])
+    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], homogeneous, n_vars, false, ComplexF64[])
 
 function Base.show(io::IO, compiled::CompiledHomotopy)
     print(io, "CompiledHomotopy(Homogeneous: ", compiled.homogeneous, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
@@ -40,9 +43,10 @@ mutable struct HCSystem
     )
         CC = !isempty(p_start) ? parent(p_start[1]) : parent(p_const[1])
         RR = ArbField(precision(CC))
-        patch_values = isempty(patch_vector) && compiled.projective_patch ?
-            [CC(a) for a in compiled.patch_template] :
-            patch_vector
+        if compiled.projective_patch && !isempty(patch_vector)
+            throw(ArgumentError("patch_vector is no longer used for projective tracking; coordinate charts are used instead."))
+        end
+        patch_values = patch_vector
         patch_tuple = Tuple(patch_values)
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
@@ -52,9 +56,10 @@ mutable struct HCSystem
 
     function HCSystem(compiled::CompiledHomotopy, CC::AcbField; patch_vector::Vector{AcbFieldElem}=AcbFieldElem[])
         RR = ArbField(precision(CC))
-        patch_values = isempty(patch_vector) && compiled.projective_patch ?
-            [CC(a) for a in compiled.patch_template] :
-            patch_vector
+        if compiled.projective_patch && !isempty(patch_vector)
+            throw(ArgumentError("patch_vector is no longer used for projective tracking; coordinate charts are used instead."))
+        end
+        patch_values = patch_vector
         patch_tuple = Tuple(patch_values)
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
@@ -76,6 +81,7 @@ function Base.show(io::IO, sys::HCSystem)
 end
 
 has_projective_patch(sys::HCSystem) = !isempty(sys.patch_vector)
+uses_projective_charts(sys::HCSystem) = sys.compiled.projective_patch
 
 _convert_acb_vector(CC::AcbField, values) = AcbFieldElem[CC(value) for value in values]
 
@@ -108,6 +114,30 @@ function _patch_value(sys::HCSystem, x)
     return result - 1
 end
 
+_coerce_eval_values(sys::HCSystem, values, x::AbstractVector{<:AcbFieldElem}) = sys.CC.(values)
+_coerce_eval_values(sys::HCSystem, values, x) = values
+
+function _chart_input_for_evaluation(sys::HCSystem, x)
+    !uses_projective_charts(sys) && return x, sys.patch_idx
+    length(x) == sys.compiled.n_vars - 1 && return x, sys.patch_idx
+    length(x) == sys.compiled.n_vars || throw(DimensionMismatch("Projective chart evaluation expects chart length n or homogeneous length n + 1."))
+
+    chart_idx = sys.patch_idx
+    if mag_complex(x[chart_idx]) <= 1e-30
+        _, chart_idx = findmax([mag_complex(xi) for xi in x])
+    end
+    scale = x[chart_idx]
+    result = Vector{eltype(x)}(undef, length(x) - 1)
+    out_idx = 1
+    for i in eachindex(x)
+        if i != chart_idx
+            result[out_idx] = x[i] / scale
+            out_idx += 1
+        end
+    end
+    return result, chart_idx
+end
+
 struct TMCache
     temp1::AcbFieldElem
     temp2::AcbFieldElem
@@ -120,6 +150,10 @@ struct TMCache
 end
 
 function evaluate_H_augmented(sys::HCSystem, x, t)
+    if uses_projective_charts(sys)
+        x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
+        return _coerce_eval_values(sys, sys.compiled.chart_func_H[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
+    end
     val_sys = sys.compiled.func_H(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
     if !sys.homogeneous
         return val_sys
@@ -134,6 +168,10 @@ evaluate_H(sys::HCSystem, x, t) = evaluate_H_augmented(sys, x, t)
 
 function evaluate_Jac(sys::HCSystem, x, t)
     CC = sys.CC 
+    if uses_projective_charts(sys)
+        x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
+        return _coerce_eval_values(sys, sys.compiled.chart_func_Jx[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
+    end
     J_sys = sys.compiled.func_Jx(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
     if !sys.homogeneous
         return J_sys
@@ -156,6 +194,10 @@ end
 
 function evaluate_dt_augmented(sys::HCSystem, x, t)
     CC = sys.CC 
+    if uses_projective_charts(sys)
+        x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
+        return _coerce_eval_values(sys, sys.compiled.chart_func_dt[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
+    end
     val_dt = sys.compiled.func_dt(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
     if !sys.homogeneous
         return val_dt

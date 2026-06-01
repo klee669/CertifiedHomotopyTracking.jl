@@ -76,10 +76,10 @@ end
     H_affine = straight_line_homotopy(F, G, [x]; CCRing=CC)
     res_affine = track_path(H_affine, start; h_init=0.05)
 
-    H_projective = straight_line_homotopy(F, G, [x]; CCRing=CC, projective=true, patch_vector=[1, 1])
+    H_projective = straight_line_homotopy(F, G, [x]; CCRing=CC, projective=true)
     res_projective = track_path(H_projective, start; h_init=0.05)
 
-    compiled_projective = compile_edge_homotopy(F, [x], Num[]; projective=true, patch_vector=[1, 1])
+    compiled_projective = compile_edge_homotopy(F, [x], Num[]; projective=true)
     sys_projective = HCSystem(compiled_projective, CC)
     direct_projective = track_path(sys_projective, start; h_init=0.05)
 
@@ -97,12 +97,13 @@ end
     H_large_affine = straight_line_homotopy(F_large, G, [x]; CCRing=CC)
     large_affine = track_path(H_large_affine, start; h_init=0.05)
 
-    H_large_projective = straight_line_homotopy(F_large, G, [x]; CCRing=CC, projective=true, patch_vector=[1, 1])
+    H_large_projective = straight_line_homotopy(F_large, G, [x]; CCRing=CC, projective=true)
     large_projective = track_path(H_large_projective, start; h_init=0.05)
 
     @test succeeded(large_affine)
     @test succeeded(large_projective)
     @test abs(solution(large_affine)[1]) > 50
+    @test large_projective.patch_idx == 2
     @test maximum(abs.(convert_to_double_int.(projective_solution(large_projective)))) <= 2
     @test isapprox(solution(large_projective)[1], 100 + 0im; atol=1e-6)
 end

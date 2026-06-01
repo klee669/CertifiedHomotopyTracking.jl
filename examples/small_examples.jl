@@ -165,7 +165,7 @@ F = [x^2 + 3*y - 4, y^2 + 3]
 G = [x^2 - 1, y^2 - 1]
 
 H_affine = straight_line_homotopy(F, G, [x, y]; CCRing=CC)
-H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 
 point = [CC(1), CC(-1)]
 
@@ -188,7 +188,7 @@ CC = AcbField(PREC_BITS)
 F = [x^2 + y^2 - 2, x*y - 1//2]
 G = [x^2 - 1, y^2 - 1]
 
-H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 
 rough_point = [CC(1.05), CC(0.95)]
 res = track_path(H_projective, rough_point; h_init=0.05)
@@ -218,7 +218,7 @@ F = [
 ]
 G = [x^3 - 1, y^3 - 1, z^3 - 1]
 
-H_projective = straight_line_homotopy(F, G, [x, y, z]; CCRing=CC, projective=true, patch_vector=[1, 1, -1, 1])
+H_projective = straight_line_homotopy(F, G, [x, y, z]; CCRing=CC, projective=true)
 
 point = [CC(1), CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
@@ -253,7 +253,7 @@ F = [f1, f2, f3, f4, f5]
 G = [g1, g2, g3, g4, g5]
 
 H_affine = straight_line_homotopy(F, G, [a, b, c, d, e]; CCRing=CC, gamma=CC(1,1))
-H_projective = straight_line_homotopy(F, G, [a, b, c, d, e]; CCRing=CC, projective=true, patch_vector=[1, 1, -1, 1, -1, 1], gamma=CC(1,1))
+H_projective = straight_line_homotopy(F, G, [a, b, c, d, e]; CCRing=CC, projective=true, gamma=CC(1,1))
 
 point = [CC(1), CC(-1), CC(-1), CC(-1), CC(-1)]
 res_affine = track_path(H_affine, point)
@@ -278,7 +278,7 @@ F = [
 ]
 G = [x^2 - 1, y^2 - 1]
 
-H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, 1, 1])
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 
 point = [CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
@@ -307,7 +307,7 @@ F = [
 ]
 G = [x^2 - 1, y^2 - 1]
 
-H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true, patch_vector=[1, -1, 1])
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 
 point = [CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
@@ -334,7 +334,7 @@ F = [
 G = [w^2 - 1, x^2 - 1, y^2 - 1, z^2 - 1]
 
 H_affine = straight_line_homotopy(F, G, [w, x, y, z]; CCRing=CC, gamma=CC(1,1))
-H_projective = straight_line_homotopy(F, G, [w, x, y, z]; CCRing=CC, projective=true, patch_vector=[2, 2, -1, 1, -1], gamma=CC(1,1))
+H_projective = straight_line_homotopy(F, G, [w, x, y, z]; CCRing=CC, projective=true, gamma=CC(1,1))
 
 point = [CC(1), CC(-1), CC(1), CC(-1)]
 res = track_path(H_affine, point; h_init=0.05)
@@ -344,6 +344,5 @@ succeeded(res)
 res.status
 solution(res)
 projective_solution(res)
-
 
 
