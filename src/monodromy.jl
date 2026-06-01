@@ -299,8 +299,13 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    projective::Bool=false,
     track_options::NamedTuple=(;),
 )
+    if projective && !compiled_sys.projective_patch
+        throw(ArgumentError("projective=true requires compiled_sys to be built with projective=true."))
+    end
+    effective_track_options = merge((; projective=projective), track_options)
     iter = 0
     iter_stagnant = 0
     total_correspondences = 0
@@ -338,8 +343,8 @@ function solve_monodromy(
                 id1 = findfirst(==(e.node1), vertices)
                 id2 = findfirst(==(e.node2), vertices)
                 
-                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match, track_options=track_options)
-                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match, track_options=track_options)
+                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match, track_options=effective_track_options)
+                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match, track_options=effective_track_options)
 
                 counts = map(x -> length(x.correspondence12), edges)
                 @info "Status (Edge $idx done): Correspondences => $counts"
@@ -364,6 +369,7 @@ function solve_monodromy(
     max_roots=20,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
+    projective::Bool=false,
     track_options::NamedTuple=(;),
 )
     println("Building a complete graph for the given vertices...")
@@ -377,7 +383,7 @@ function solve_monodromy(
         end
     end
     
-    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match, track_options=track_options)
+    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match, projective=projective, track_options=track_options)
 end
 
 # ------------------------------------------------------------------------------
@@ -466,7 +472,13 @@ function search_point(res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldEle
 end
 
 function _tracking_coordinates(sys::HCSystem, x::Vector{AcbFieldElem})
-    if has_projective_patch(sys) && length(x) == length(sys.patch_vector) - 1
+    if uses_projective_charts(sys)
+        if length(x) == sys.compiled.n_vars - 1
+            return copy(x)
+        elseif length(x) == sys.compiled.n_vars
+            return _projective_to_chart_coordinates(sys, x, sys.patch_idx)
+        end
+    elseif has_projective_patch(sys) && length(x) == length(sys.patch_vector) - 1
         return lift_to_patch(x, collect(sys.patch_vector))
     elseif sys.homogeneous && !has_projective_patch(sys) && sys.compiled.n_vars != 0 && length(x) == sys.compiled.n_vars - 1
         return [sys.CC(1); x]

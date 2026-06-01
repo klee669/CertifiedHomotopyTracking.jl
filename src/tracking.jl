@@ -158,6 +158,105 @@ function track(
     end
 end
 
+function _projective_coordinate_from_chart(x, chart_idx::Int, coord_idx::Int)
+    if coord_idx == chart_idx
+        return one(x[1])
+    elseif coord_idx < chart_idx
+        return x[coord_idx]
+    else
+        return x[coord_idx - 1]
+    end
+end
+
+function _chart_to_projective_coordinates(sys::HCSystem, x, chart_idx::Int=sys.patch_idx)
+    X = Vector{eltype(x)}(undef, sys.compiled.n_vars)
+    for i in eachindex(X)
+        X[i] = _projective_coordinate_from_chart(x, chart_idx, i)
+    end
+    return X
+end
+
+function _projective_to_chart_coordinates(sys::HCSystem, X, chart_idx::Int)
+    scale = X[chart_idx]
+    if mag_complex(scale) <= 1e-30
+        throw(ArgumentError("Cannot move to projective chart $chart_idx because its coordinate is numerically zero."))
+    end
+    x = Vector{eltype(X)}(undef, length(X) - 1)
+    out_idx = 1
+    for i in eachindex(X)
+        if i != chart_idx
+            x[out_idx] = X[i] / scale
+            out_idx += 1
+        end
+    end
+    return x
+end
+
+function _projective_to_chart_coordinates(sys::HCSystem, X)
+    mags = [mag_complex(xi) for xi in X]
+    _, chart_idx = findmax(mags)
+    return _projective_to_chart_coordinates(sys, X, chart_idx), chart_idx
+end
+
+function _canonical_projective_chart(sys::HCSystem, x)
+    X = _chart_to_projective_coordinates(sys, x)
+    mags = [mag_complex(xi) for xi in X]
+    max_val, chart_idx = findmax(mags)
+    return max_val > 1.5 ? chart_idx : sys.patch_idx
+end
+
+function _projective_chart_box(sys::HCSystem, x, chart_idx::Int, r)
+    CC = sys.CC
+    unit = sys.RR("0 +/- 1")
+    unit_box = CC(unit, unit)
+    x_box = x .+ unit_box .* CC(r)
+    return _chart_to_projective_coordinates(sys, x_box, chart_idx)
+end
+
+function _chart_box_center_radius(y_box; inflate=1.1, min_radius=1e-30)
+    center = get_mid_vec(y_box)
+    radius = min_radius
+    for i in eachindex(y_box)
+        radius = max(radius, inflate * max_int_norm(y_box[i] - center[i]))
+    end
+    return center, radius
+end
+
+function _certified_projective_chart_transfer(
+    sys::HCSystem,
+    x,
+    t,
+    r,
+    target_chart_idx::Int;
+    rho=0.7,
+)
+    old_chart_idx = sys.patch_idx
+    target_chart_idx == old_chart_idx && return x, r, nothing, true, 0.0
+
+    X_box = _projective_chart_box(sys, x, old_chart_idx, r)
+    denominator = X_box[target_chart_idx]
+    contains(denominator, 0) && return x, r, nothing, false, Inf
+
+    y_box = Vector{AcbFieldElem}(undef, length(X_box) - 1)
+    out_idx = 1
+    for i in eachindex(X_box)
+        if i != target_chart_idx
+            y_box[out_idx] = X_box[i] / denominator
+            out_idx += 1
+        end
+    end
+
+    y, r_y = _chart_box_center_radius(y_box)
+    sys.patch_idx = target_chart_idx
+    A_y = compute_preconditioner(sys, y, t)
+    passed, k_norm = krawczyk_test(sys, y, t, r_y, A_y; rho=rho)
+    if passed
+        return y, r_y, A_y, true, k_norm
+    end
+    sys.patch_idx = old_chart_idx
+    return x, r, nothing, false, k_norm
+end
+
 
 function _track_path_at_precision(
     sys::HCSystem,
@@ -185,26 +284,22 @@ function _track_path_at_precision(
     last_k_norm = Inf
     user_input_start = copy(x_start_input)
 
-    if projective
-        sys.homogeneous || throw(ArgumentError("projective=true requires a homogenized/projective HCSystem. Construct it with projective=true."))
-        if patch_vector !== nothing
-            length(patch_vector) == sys.compiled.n_vars || throw(DimensionMismatch("patch_vector length must match the number of projective variables."))
-            sys.patch_vector = Tuple(CC(a) for a in patch_vector)
-        elseif !has_projective_patch(sys)
-            sys.compiled.n_vars > 0 || throw(ArgumentError("Cannot create a projective patch because the compiled variable count is unknown."))
-            sys.patch_vector = Tuple(CC(a) for a in random_patch_vector(sys.compiled.n_vars))
-        end
+    patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective tracking uses coordinate charts."))
+    if projective && !uses_projective_charts(sys)
+        throw(ArgumentError("projective=true requires a system compiled with projective=true."))
     end
 
-    if has_projective_patch(sys)
-        if length(x_start_input) == length(sys.patch_vector) - 1
-            x = lift_to_patch(x_start_input, collect(sys.patch_vector))
-        elseif length(x_start_input) == length(sys.patch_vector)
-            x = repatch(x_start_input, collect(sys.patch_vector))
+    if uses_projective_charts(sys)
+        dim = sys.compiled.n_vars - 1
+        if length(x_start_input) == dim
+            x = copy(x_start_input)
+            sys.patch_idx = 1
+        elseif length(x_start_input) == sys.compiled.n_vars
+            x, chart_idx = _projective_to_chart_coordinates(sys, x_start_input)
+            sys.patch_idx = chart_idx
         else
-            throw(DimensionMismatch("x_start_input must have affine length n or projective length n + 1."))
+            throw(DimensionMismatch("x_start_input must have affine chart length n or homogeneous length n + 1."))
         end
-        sys.patch_idx = 1
     elseif sys.homogeneous
         if sys.compiled.n_vars != 0 && length(x_start_input) == sys.compiled.n_vars - 1
             x = [CC(1); x_start_input]
@@ -222,6 +317,7 @@ function _track_path_at_precision(
     else
         x = copy(x_start_input)
     end
+    tracking_start_patch_idx = sys.patch_idx
     tracking_input_start = copy(x)
     tm_cache = TMCache(CC)
     validation_cache = KrawczykValidationCache(CC, RR, length(x))
@@ -249,6 +345,7 @@ function _track_path_at_precision(
             input_start=user_input_start,
             tracking_input_start=tracking_input_start,
             tracking_refined_start=tracking_refined_start,
+            tracking_start_patch_idx=tracking_start_patch_idx,
             initial_precision=initial_precision,
         )
     end
@@ -262,7 +359,22 @@ function _track_path_at_precision(
         dt_remaining = t_target - t
         if h > dt_remaining h = dt_remaining end
 
-        if sys.homogeneous && !has_projective_patch(sys)
+        if uses_projective_charts(sys)
+            chart_idx = _canonical_projective_chart(sys, x)
+            if chart_idx != sys.patch_idx
+                x_chart, r_chart, A_chart, transfer_success, transfer_k_norm =
+                    _certified_projective_chart_transfer(sys, x, t, r, chart_idx; rho=rho)
+                last_k_norm = transfer_k_norm
+                if transfer_success
+                    x = x_chart
+                    r = r_chart
+                    A = A_chart
+                    x_prev = copy(x)
+                    v_prev = compute_velocity(sys, x, t, A)
+                    h_prev = h
+                end
+            end
+        elseif sys.homogeneous && !has_projective_patch(sys)
             mags = [mag_complex(xi) for xi in x]
             max_val, max_idx = findmax(mags)
             if max_idx != sys.patch_idx && max_val > 1.5
@@ -295,6 +407,7 @@ function _track_path_at_precision(
                 input_start=user_input_start,
                 tracking_input_start=tracking_input_start,
                 tracking_refined_start=tracking_refined_start,
+                tracking_start_patch_idx=tracking_start_patch_idx,
                 initial_precision=initial_precision,
             )
         end
@@ -325,6 +438,23 @@ function _track_path_at_precision(
                 x_new = get_mid_vec(x_next_interval)
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
+
+                if uses_projective_charts(sys)
+                    chart_idx = _canonical_projective_chart(sys, x)
+                    if chart_idx != sys.patch_idx
+                        x_chart, r_chart, A_chart, transfer_success, transfer_k_norm =
+                            _certified_projective_chart_transfer(sys, x, t, r, chart_idx; rho=rho)
+                        last_k_norm = transfer_k_norm
+                        if transfer_success
+                            x = x_chart
+                            r = r_chart
+                            A = A_chart
+                            x_prev = copy(x)
+                            v_prev = compute_velocity(sys, x, t, A)
+                            h_prev = h
+                        end
+                    end
+                end
 
                 show_progress && _print_track_progress(iter, t, h, precision(sys.CC))
                 h = min(h * 2, RR(0.5))
@@ -358,6 +488,7 @@ function _track_path_at_precision(
                         input_start=user_input_start,
                         tracking_input_start=tracking_input_start,
                         tracking_refined_start=tracking_refined_start,
+                        tracking_start_patch_idx=tracking_start_patch_idx,
                         initial_precision=initial_precision,
                     )
                 end
@@ -384,12 +515,27 @@ function _track_path_at_precision(
                 input_start=user_input_start,
                 tracking_input_start=tracking_input_start,
                 tracking_refined_start=tracking_refined_start,
+                tracking_start_patch_idx=tracking_start_patch_idx,
                 initial_precision=initial_precision,
             )
         end
     end
 
     show_progress && _clear_track_progress()
+
+    if uses_projective_charts(sys)
+        chart_idx = _canonical_projective_chart(sys, x)
+        if chart_idx != sys.patch_idx
+            x_chart, r_chart, A_chart, transfer_success, transfer_k_norm =
+                _certified_projective_chart_transfer(sys, x, t_target, r, chart_idx; rho=rho)
+            last_k_norm = transfer_k_norm
+            if transfer_success
+                x = x_chart
+                r = r_chart
+                A = A_chart
+            end
+        end
+    end
 
     final_status = :success
     final_message = "Path tracked successfully."
@@ -425,6 +571,24 @@ function _track_path_at_precision(
         end
     end
 
+    if final_success && uses_projective_charts(sys)
+        chart_idx = _canonical_projective_chart(sys, x)
+        if chart_idx != sys.patch_idx
+            x_chart, r_chart, A_chart, transfer_success, transfer_k_norm =
+                _certified_projective_chart_transfer(sys, x, t_target, r, chart_idx; rho=rho)
+            last_k_norm = transfer_k_norm
+            if transfer_success
+                x = x_chart
+                r = r_chart
+                x_polished, r_polished, _, success_polish = refine_moore_box(sys, x, t_target, r, A_chart)
+                if success_polish
+                    x = x_polished
+                    r = r_polished
+                end
+            end
+        end
+    end
+
     return _track_result(
         sys,
         x,
@@ -443,6 +607,7 @@ function _track_path_at_precision(
         input_start=user_input_start,
         tracking_input_start=tracking_input_start,
         tracking_refined_start=tracking_refined_start,
+        tracking_start_patch_idx=tracking_start_patch_idx,
         initial_precision=initial_precision,
     )
 end

@@ -135,7 +135,22 @@ function _result_with_field(res::TrackResult, CC::AcbField)
     )
 end
 
-function _projective_to_affine(sys::HCSystem, X; affine_chart_atol=1e-10)
+function _chart_solution_to_projective(sys::HCSystem, x; patch_idx::Int=sys.patch_idx)
+    X = Vector{eltype(x)}(undef, sys.compiled.n_vars)
+    for i in eachindex(X)
+        if i == patch_idx
+            X[i] = one(x[1])
+        elseif i < patch_idx
+            X[i] = x[i]
+        else
+            X[i] = x[i - 1]
+        end
+    end
+    return X
+end
+
+function _projective_to_affine(sys::HCSystem, x; affine_chart_atol=1e-10)
+    X = uses_projective_charts(sys) ? _chart_solution_to_projective(sys, x) : x
     X0 = X[1]
     if mag_complex(X0) <= affine_chart_atol
         return copy(X), true
@@ -149,7 +164,7 @@ function _projective_to_affine(sys::HCSystem, X; affine_chart_atol=1e-10)
 end
 
 function _coordinates_for_result(sys::HCSystem, x; affine_chart_atol=1e-10)
-    if has_projective_patch(sys)
+    if uses_projective_charts(sys) || has_projective_patch(sys)
         affine, is_near_infinity = _projective_to_affine(sys, x; affine_chart_atol=affine_chart_atol)
         return affine, is_near_infinity
     end
@@ -174,6 +189,7 @@ function _track_result(
     input_start=AcbFieldElem[],
     tracking_input_start=AcbFieldElem[],
     tracking_refined_start=AcbFieldElem[],
+    tracking_start_patch_idx=sys.patch_idx,
     initial_precision=precision(sys.CC),
 )
     root = copy(x)
@@ -187,10 +203,14 @@ function _track_result(
     result_message = message
     result_near_infinity = false
 
-    if has_projective_patch(sys)
-        projective_root = copy(x)
-        result_projective_input_start = copy(tracking_input_start)
-        result_projective_refined_start = copy(tracking_refined_start)
+    if uses_projective_charts(sys) || has_projective_patch(sys)
+        projective_root = uses_projective_charts(sys) ? _chart_solution_to_projective(sys, x) : copy(x)
+        result_projective_input_start = uses_projective_charts(sys) && !isempty(tracking_input_start) ?
+            _chart_solution_to_projective(sys, tracking_input_start; patch_idx=tracking_start_patch_idx) :
+            copy(tracking_input_start)
+        result_projective_refined_start = uses_projective_charts(sys) && !isempty(tracking_refined_start) ?
+            _chart_solution_to_projective(sys, tracking_refined_start; patch_idx=tracking_start_patch_idx) :
+            copy(tracking_refined_start)
         if !isempty(tracking_refined_start)
             result_refined_start, _ = _coordinates_for_result(sys, tracking_refined_start; affine_chart_atol=affine_chart_atol)
         end
