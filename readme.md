@@ -51,7 +51,7 @@ max_norm(hcat(evaluate_H(H, certified_region(res), CC(1)))) # certified residual
 
 `track_path` uses adaptive precision by default. It starts at 53 bits, retries
 with higher precision when certified refinement fails or Krawczyk validation
-stagnates, and never relaxes the certification criterion. To compare with the
+stagnates. To compare with the
 previous fixed-precision behavior, use:
 
 ```julia
