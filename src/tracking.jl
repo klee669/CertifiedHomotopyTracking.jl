@@ -1,7 +1,7 @@
 export track, tracking_without_predictor, track_path
 
-function _print_track_progress(iter, t, h)
-    msg = "Iter $iter: t=$(round(Float64(t); sigdigits=12)), h=$(round(Float64(h); sigdigits=12))"
+function _print_track_progress(iter, t, h, precision_bits)
+    msg = "Iter $iter: t=$(round(Float64(t); sigdigits=12)), h=$(round(Float64(h); sigdigits=12)), precision=$(precision_bits)"
     print("\r", msg, "\033[K")
     flush(stdout)
 end
@@ -159,7 +159,7 @@ function track(
 end
 
 
-function track_path(
+function _track_path_at_precision(
     sys::HCSystem,
     x_start_input::Vector{AcbFieldElem};
     t_start=0.0,
@@ -170,6 +170,9 @@ function track_path(
     projective=false,
     patch_vector=nothing,
     affine_chart_atol=1e-10,
+    request_precision_retry=false,
+    precision_rejection_threshold=8,
+    initial_precision=precision(sys.CC),
 )
     CC = sys.CC; RR = sys.RR
     t = RR(t_start)
@@ -246,6 +249,7 @@ function track_path(
             input_start=user_input_start,
             tracking_input_start=tracking_input_start,
             tracking_refined_start=tracking_refined_start,
+            initial_precision=initial_precision,
         )
     end
 
@@ -291,12 +295,15 @@ function track_path(
                 input_start=user_input_start,
                 tracking_input_start=tracking_input_start,
                 tracking_refined_start=tracking_refined_start,
+                initial_precision=initial_precision,
             )
         end
 
         v = compute_velocity(sys, x, t, A)
         step_accepted = false
         min_h = RR(1e-20)
+        previous_rejected_k_norm = Inf
+        stagnant_rejections = 0
 
         while h > min_h
             local X_tm
@@ -319,12 +326,41 @@ function track_path(
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
 
-                show_progress && _print_track_progress(iter, t, h)
+                show_progress && _print_track_progress(iter, t, h, precision(sys.CC))
                 h = min(h * 2, RR(0.5))
                 break
             else
                 rejected_steps += 1
+                if !isfinite(k_norm) || k_norm >= 0.9 * previous_rejected_k_norm
+                    stagnant_rejections += 1
+                else
+                    stagnant_rejections = 0
+                end
+                previous_rejected_k_norm = k_norm
                 h /= 2
+                if request_precision_retry && stagnant_rejections >= precision_rejection_threshold
+                    show_progress && _clear_track_progress()
+                    return _track_result(
+                        sys,
+                        x,
+                        false,
+                        :precision_increase_required,
+                        iter,
+                        accepted_steps,
+                        rejected_steps,
+                        t,
+                        h,
+                        r,
+                        last_k_norm,
+                        rho,
+                        "Repeated certified step validation failures suggest insufficient arithmetic precision.";
+                        affine_chart_atol=affine_chart_atol,
+                        input_start=user_input_start,
+                        tracking_input_start=tracking_input_start,
+                        tracking_refined_start=tracking_refined_start,
+                        initial_precision=initial_precision,
+                    )
+                end
             end
         end
 
@@ -348,6 +384,7 @@ function track_path(
                 input_start=user_input_start,
                 tracking_input_start=tracking_input_start,
                 tracking_refined_start=tracking_refined_start,
+                initial_precision=initial_precision,
             )
         end
     end
@@ -406,5 +443,54 @@ function track_path(
         input_start=user_input_start,
         tracking_input_start=tracking_input_start,
         tracking_refined_start=tracking_refined_start,
+        initial_precision=initial_precision,
     )
+end
+
+function track_path(
+    sys::HCSystem,
+    x_start_input::Vector{AcbFieldElem};
+    adaptive_precision=true,
+    min_precision=53,
+    max_precision=max(100_000, precision(sys.CC)),
+    precision_rejection_threshold=8,
+    kwargs...,
+)
+    min_precision >= 53 || throw(ArgumentError("min_precision must be at least 53 bits."))
+    max_precision >= min_precision || throw(ArgumentError("max_precision must be at least min_precision."))
+    precision_rejection_threshold > 0 || throw(ArgumentError("precision_rejection_threshold must be positive."))
+
+    if !adaptive_precision
+        return _track_path_at_precision(sys, x_start_input; kwargs...)
+    end
+
+    current_precision = min_precision
+    retryable_statuses = (
+        :initial_refinement_failed,
+        :refinement_failed,
+        :precision_increase_required,
+        :step_too_small,
+        :final_refinement_failed,
+        :final_refinement_error,
+    )
+
+    while true
+        current_sys = system_with_precision(sys, current_precision)
+        current_start = current_sys.CC.(x_start_input)
+        result = _track_path_at_precision(
+            current_sys,
+            current_start;
+            request_precision_retry=current_precision < max_precision,
+            precision_rejection_threshold=precision_rejection_threshold,
+            initial_precision=min_precision,
+            kwargs...,
+        )
+        if succeeded(result) || !(result.status in retryable_statuses) || current_precision >= max_precision
+            return _result_with_field(result, sys.CC)
+        end
+
+        next_precision = min(max_precision, 2 * current_precision)
+        @info "Retrying certified path tracking with higher precision" status=result.status precision=current_precision next_precision
+        current_precision = next_precision
+    end
 end

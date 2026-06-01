@@ -68,8 +68,8 @@ open(path, "w") do file
             flush(file)
 
             catch e
-                println("⚠️ Error at i=$i: $(e)")
-                #                    write(file, "⚠️ Error at i=$i: $(e)\n\n")
+                println("Error at i=$i: $(e)")
+                #                    write(file, "Error at i=$i: $(e)\n\n")
                 i = i-1;
             continue  
         end

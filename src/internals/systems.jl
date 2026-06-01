@@ -1,4 +1,5 @@
-export CompiledHomotopy, HCSystem, TMCache, evaluate_H, evaluate_Jac, evaluate_dt
+export CompiledHomotopy, HCSystem, TMCache, evaluate_H, evaluate_Jac, evaluate_dt,
+       system_with_precision
 
 struct CompiledHomotopy
     func_H::Function
@@ -62,7 +63,42 @@ mutable struct HCSystem
     end
 end
 
+function Base.show(io::IO, sys::HCSystem)
+    print(
+        io,
+        "HCSystem(",
+        sys.compiled,
+        ", params=", length(sys.p_start),
+        ", consts=", length(sys.p_const),
+        ", precision=", precision(sys.CC),
+        ")",
+    )
+end
+
 has_projective_patch(sys::HCSystem) = !isempty(sys.patch_vector)
+
+_convert_acb_vector(CC::AcbField, values) = AcbFieldElem[CC(value) for value in values]
+
+function system_with_precision(sys::HCSystem, precision_bits::Integer)
+    precision_bits > 0 || throw(ArgumentError("precision_bits must be positive."))
+    precision(sys.CC) == precision_bits && return sys
+
+    CC = AcbField(precision_bits)
+    patch_vector = _convert_acb_vector(CC, sys.patch_vector)
+    rebuilt = if isempty(sys.p_start)
+        HCSystem(sys.compiled, CC; patch_vector=patch_vector)
+    else
+        HCSystem(
+            sys.compiled,
+            _convert_acb_vector(CC, sys.p_start),
+            _convert_acb_vector(CC, sys.p_end),
+            _convert_acb_vector(CC, sys.p_const);
+            patch_vector=patch_vector,
+        )
+    end
+    rebuilt.patch_idx = sys.patch_idx
+    return rebuilt
+end
 
 function _patch_value(sys::HCSystem, x)
     result = zero(sys.patch_vector[1] * x[1])

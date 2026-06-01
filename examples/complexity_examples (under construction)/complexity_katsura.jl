@@ -85,15 +85,15 @@ for root in roots
     push!(info_list, it1)
 end
 
-# 1. Vector{Any}를 Matrix로 변환 (각 내부 벡터를 행으로 간주)
+# 1. Convert Vector{Any} to a matrix, treating each inner vector as a row.
 data_matrix = vcat(transpose.(info_list)...)
 
-# 2. 열 방향(차원 1)으로 평균 계산
+# 2. Compute column means along dimension 1.
 column_means = mean(data_matrix, dims=1)
 #[iter, minimum(dt_list), median(dt_list),maximum(dt_list),  quantile(dt_list, 0.25), quantile(dt_list, 0.75), minimum(r_list), median(r_list), mean(b_list), maximum(eta_list), mean(ratio_list[2:end])]
 map(i -> log(10,i), data_matrix[1,:])
-println("각 열의 평균 (Column Mean):")
-# 결과를 보기 쉽게 출력
+println("Column means:")
+# Print results in a readable format.
 for (i, mean_val) in enumerate(column_means[1, :])
     println("Column $i: $mean_val")
 end
@@ -127,5 +127,4 @@ for i in 1:100
     push!(iters5, it5)
 end
 mean(iters1), mean(iters2), mean(iters3), mean(iters4), mean(iters5)
-
 
