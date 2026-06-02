@@ -97,7 +97,7 @@ for i in 1:3
     push!(vertices, vertex(rand_u))
 end
 
-compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars; homogeneous=false);
+compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars);
 
 # 5. Solve monodromy (Tracking)
 edges = solve_monodromy(compiled_homotopy, vertices; max_roots=4)

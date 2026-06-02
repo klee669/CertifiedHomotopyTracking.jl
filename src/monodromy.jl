@@ -480,7 +480,7 @@ function _tracking_coordinates(sys::HCSystem, x::Vector{AcbFieldElem})
         end
     elseif has_projective_patch(sys) && length(x) == length(sys.patch_vector) - 1
         return lift_to_patch(x, collect(sys.patch_vector))
-    elseif sys.homogeneous && !has_projective_patch(sys) && sys.compiled.n_vars != 0 && length(x) == sys.compiled.n_vars - 1
+    elseif sys.projective_coordinates && !has_projective_patch(sys) && sys.compiled.n_vars != 0 && length(x) == sys.compiled.n_vars - 1
         return [sys.CC(1); x]
     end
     return copy(x)

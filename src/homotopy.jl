@@ -25,7 +25,6 @@ function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num
     G_exprs::AbstractVector{<:Union{Num, Complex{Num}}}, 
     x_vars::AbstractVector{Num}; 
     CCRing=AcbField(256),
-    homogeneous=false,
     projective=false,
     patch_vector=nothing,
     patch_rng=nothing,
@@ -45,7 +44,6 @@ function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num
         H,
         x_vars,
         [__gamma_trick_internal_param__];
-        homogeneous=homogeneous,
         projective=projective,
         patch_vector=patch_vector,
         patch_rng=patch_rng,

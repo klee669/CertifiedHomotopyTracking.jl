@@ -8,18 +8,18 @@ struct CompiledHomotopy
     chart_func_H::Vector{Function}
     chart_func_Jx::Vector{Function}
     chart_func_dt::Vector{Function}
-    homogeneous::Bool
+    projective_coordinates::Bool
     n_vars::Int
     projective_patch::Bool
     patch_template::Vector{ComplexF64}
 end
-CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], homogeneous, 0, false, ComplexF64[])
-CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, homogeneous::Bool, n_vars::Int) =
-    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], homogeneous, n_vars, false, ComplexF64[])
+CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, projective_coordinates::Bool) =
+    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], projective_coordinates, 0, false, ComplexF64[])
+CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, projective_coordinates::Bool, n_vars::Int) =
+    CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], projective_coordinates, n_vars, false, ComplexF64[])
 
 function Base.show(io::IO, compiled::CompiledHomotopy)
-    print(io, "CompiledHomotopy(Homogeneous: ", compiled.homogeneous, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
+    print(io, "CompiledHomotopy(projective_coordinates=", compiled.projective_coordinates, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
 end
 
 mutable struct HCSystem
@@ -27,7 +27,7 @@ mutable struct HCSystem
     p_start::Tuple{Vararg{AcbFieldElem}}
     p_end::Tuple{Vararg{AcbFieldElem}}
     p_const::Tuple{Vararg{AcbFieldElem}}
-    homogeneous::Bool
+    projective_coordinates::Bool
     patch_idx::Int
     patch_vector::Tuple{Vararg{AcbFieldElem}}
     
@@ -51,7 +51,7 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.homogeneous, 1, patch_tuple, CC, RR)
+        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.projective_coordinates, 1, patch_tuple, CC, RR)
     end
 
     function HCSystem(compiled::CompiledHomotopy, CC::AcbField; patch_vector::Vector{AcbFieldElem}=AcbFieldElem[])
@@ -64,7 +64,7 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, (), (), (), compiled.homogeneous, 1, patch_tuple, CC, RR)
+        new(compiled, (), (), (), compiled.projective_coordinates, 1, patch_tuple, CC, RR)
     end
 end
 
@@ -120,7 +120,7 @@ _coerce_eval_values(sys::HCSystem, values, x) = values
 function _chart_input_for_evaluation(sys::HCSystem, x)
     !uses_projective_charts(sys) && return x, sys.patch_idx
     length(x) == sys.compiled.n_vars - 1 && return x, sys.patch_idx
-    length(x) == sys.compiled.n_vars || throw(DimensionMismatch("Projective chart evaluation expects chart length n or homogeneous length n + 1."))
+    length(x) == sys.compiled.n_vars || throw(DimensionMismatch("Projective chart evaluation expects chart length n or projective-coordinate length n + 1."))
 
     chart_idx = sys.patch_idx
     if mag_complex(x[chart_idx]) <= 1e-30
@@ -155,7 +155,7 @@ function evaluate_H_augmented(sys::HCSystem, x, t)
         return _coerce_eval_values(sys, sys.compiled.chart_func_H[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
     end
     val_sys = sys.compiled.func_H(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
-    if !sys.homogeneous
+    if !sys.projective_coordinates
         return val_sys
     elseif has_projective_patch(sys)
         return [val_sys; _patch_value(sys, x)]
@@ -173,7 +173,7 @@ function evaluate_Jac(sys::HCSystem, x, t)
         return _coerce_eval_values(sys, sys.compiled.chart_func_Jx[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
     end
     J_sys = sys.compiled.func_Jx(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
-    if !sys.homogeneous
+    if !sys.projective_coordinates
         return J_sys
     else
         n_rows, n_cols = size(J_sys)
@@ -199,7 +199,7 @@ function evaluate_dt_augmented(sys::HCSystem, x, t)
         return _coerce_eval_values(sys, sys.compiled.chart_func_dt[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
     end
     val_dt = sys.compiled.func_dt(x, t, sys.p_start..., sys.p_end..., sys.p_const...)
-    if !sys.homogeneous
+    if !sys.projective_coordinates
         return val_dt
     else
         return [val_dt; CC(0)]

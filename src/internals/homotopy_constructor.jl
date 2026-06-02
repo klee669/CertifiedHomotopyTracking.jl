@@ -40,13 +40,13 @@ function _compile_projective_charts(H_eqs, projective_vars, t_var, extra_args)
     return chart_H, chart_Jx, chart_dt
 end
 
-function compile_homotopy(H_eqs, x_vars, t_var; homogeneous=false, projective=false, patch_vector=nothing, patch_rng=nothing)
+function compile_homotopy(H_eqs, x_vars, t_var; projective=false, patch_vector=nothing, patch_rng=nothing)
     println("Compiling Direct Homotopy System...")
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
     patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
     
     target_vars = x_vars
-    use_projective_coords = homogeneous || projective
+    use_projective_coords = projective
     
     if use_projective_coords
         @variables u0
@@ -73,7 +73,7 @@ function compile_homotopy(H_eqs, x_vars, t_var; homogeneous=false, projective=fa
     return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[])
 end
 
-function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
+function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
     patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
     @variables t_var
@@ -91,7 +91,7 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; homogeneous=false, project
     H_sub = [Symbolics.substitute(eq, subs_dict) for eq in F_eqs]
     
     target_vars = x_vars
-    use_projective_coords = homogeneous || projective
+    use_projective_coords = projective
     
     if use_projective_coords
         @variables u0

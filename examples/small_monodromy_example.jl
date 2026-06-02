@@ -13,7 +13,7 @@ bp = [CC(1), CC(-1)]
 x0 = [CC(1) , CC(1)] 
 
 
-compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars; homogeneous=false)
+compiled_homotopy = compile_edge_homotopy(F_exprs, x_vars, p_vars)
 
 # graph construction
 edge_list = [

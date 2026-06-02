@@ -2,7 +2,7 @@
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "1cddc80f54bce3fad7a78fb09b21c0eb6e042772"
+project_hash = "ef1f3903e1703ee81bfce95a6bf355eb54afb7cd"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
@@ -159,7 +159,7 @@ version = "1.0.9+0"
 deps = ["AbstractAlgebra", "DynamicPolynomials", "GAP", "LinearAlgebra", "MultivariatePolynomials", "Nemo", "Reexport", "Symbolics"]
 path = "."
 uuid = "eb899720-675b-4191-acdc-9a7e63317b5e"
-version = "0.1.1"
+version = "0.1.3"
 
 [[deps.Combinatorics]]
 git-tree-sha1 = "08c8b6831dc00bfea825826be0bc8336fc369860"

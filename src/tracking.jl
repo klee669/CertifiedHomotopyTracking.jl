@@ -298,15 +298,15 @@ function _track_path_at_precision(
             x, chart_idx = _projective_to_chart_coordinates(sys, x_start_input)
             sys.patch_idx = chart_idx
         else
-            throw(DimensionMismatch("x_start_input must have affine chart length n or homogeneous length n + 1."))
+            throw(DimensionMismatch("x_start_input must have affine chart length n or projective-coordinate length n + 1."))
         end
-    elseif sys.homogeneous
+    elseif sys.projective_coordinates
         if sys.compiled.n_vars != 0 && length(x_start_input) == sys.compiled.n_vars - 1
             x = [CC(1); x_start_input]
         elseif sys.compiled.n_vars == 0 || length(x_start_input) == sys.compiled.n_vars
             x = copy(x_start_input)
         else
-            throw(DimensionMismatch("x_start_input must have affine length n or homogeneous length n + 1."))
+            throw(DimensionMismatch("x_start_input must have affine length n or projective-coordinate length n + 1."))
         end
 
         mags = [mag_complex(xi) for xi in x]
@@ -374,7 +374,7 @@ function _track_path_at_precision(
                     h_prev = h
                 end
             end
-        elseif sys.homogeneous && !has_projective_patch(sys)
+        elseif sys.projective_coordinates && !has_projective_patch(sys)
             mags = [mag_complex(xi) for xi in x]
             max_val, max_idx = findmax(mags)
             if max_idx != sys.patch_idx && max_val > 1.5
@@ -541,7 +541,7 @@ function _track_path_at_precision(
     final_message = "Path tracked successfully."
     final_success = true
 
-    if sys.homogeneous
+    if sys.projective_coordinates
         try
             A_final = compute_preconditioner(sys, x, t_target)
             x_polished, r_polished, _, success_polish = refine_moore_box(sys, x, t_target, 1e-8, A_final)
