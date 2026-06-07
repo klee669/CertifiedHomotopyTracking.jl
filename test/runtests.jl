@@ -1,8 +1,29 @@
 using Test
 using CertifiedHomotopyTracking
+import HomotopyContinuation
 
 @testset "CertifiedHomotopyTracking" begin
     @test true
+end
+
+@testset "HomotopyContinuation numerical trace" begin
+    HomotopyContinuation.@var x
+    G = HomotopyContinuation.System([x^2 - 1])
+    F = HomotopyContinuation.System([x^2 - 2])
+    H = HomotopyContinuation.StraightLineHomotopy(G, F)
+    x_start = [1.0 + 0im]
+
+    out = collect_hc_trace(H, x_start; t_start = 1.0, t_target = 0.0)
+
+    @test length(out.trace) >= 2
+    @test isapprox(first(out.trace).t, 1.0; atol = 1e-12)
+    if out.success
+        @test isapprox(last(out.trace).t, 0.0; atol = 1e-12)
+    end
+    @test all(length(point.x) == 1 for point in out.trace)
+    @test out.success == HomotopyContinuation.is_success(out.status)
+    @test out.accepted_steps isa Union{Int,Missing}
+    @test out.rejected_steps isa Union{Int,Missing}
 end
 
 @testset "Homogenization utilities" begin
