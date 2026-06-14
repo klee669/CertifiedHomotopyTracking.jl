@@ -1,5 +1,17 @@
-export CompiledHomotopy, HCSystem, TMCache, evaluate_H, evaluate_Jac, evaluate_dt,
-       system_with_precision
+export HomotopySourceData, CompiledHomotopy, HCSystem, SpecializedHomotopy,
+       TMCache, evaluate_H, evaluate_H_default, evaluate_Jac,
+       evaluate_dt, system_with_precision, register_tm_H_evaluator!,
+       unregister_tm_H_evaluator!
+
+struct HomotopySourceData
+    kind::Symbol
+    equations::Any
+    variables::Any
+    parameters::Any
+    t_var::Any
+    const_vars::Any
+    projective::Bool
+end
 
 struct CompiledHomotopy
     func_H::Function
@@ -12,11 +24,52 @@ struct CompiledHomotopy
     n_vars::Int
     projective_patch::Bool
     patch_template::Vector{ComplexF64}
+    source::Union{Nothing,HomotopySourceData}
 end
+CompiledHomotopy(
+    func_H::Function,
+    func_Jx::Function,
+    func_dt::Function,
+    chart_func_H::Vector{Function},
+    chart_func_Jx::Vector{Function},
+    chart_func_dt::Vector{Function},
+    projective_coordinates::Bool,
+    n_vars::Int,
+    projective_patch::Bool,
+    patch_template::Vector{ComplexF64},
+) = CompiledHomotopy(
+    func_H,
+    func_Jx,
+    func_dt,
+    chart_func_H,
+    chart_func_Jx,
+    chart_func_dt,
+    projective_coordinates,
+    n_vars,
+    projective_patch,
+    patch_template,
+    nothing,
+)
 CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, projective_coordinates::Bool) =
     CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], projective_coordinates, 0, false, ComplexF64[])
 CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, projective_coordinates::Bool, n_vars::Int) =
     CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], projective_coordinates, n_vars, false, ComplexF64[])
+
+function _compiled_homotopy_with_source(compiled::CompiledHomotopy, source::HomotopySourceData)
+    return CompiledHomotopy(
+        compiled.func_H,
+        compiled.func_Jx,
+        compiled.func_dt,
+        compiled.chart_func_H,
+        compiled.chart_func_Jx,
+        compiled.chart_func_dt,
+        compiled.projective_coordinates,
+        compiled.n_vars,
+        compiled.projective_patch,
+        compiled.patch_template,
+        source,
+    )
+end
 
 function Base.show(io::IO, compiled::CompiledHomotopy)
     print(io, "CompiledHomotopy(projective_coordinates=", compiled.projective_coordinates, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
@@ -30,6 +83,7 @@ mutable struct HCSystem
     projective_coordinates::Bool
     patch_idx::Int
     patch_vector::Tuple{Vararg{AcbFieldElem}}
+    source::Union{Nothing,HomotopySourceData}
     
     CC::AcbField 
     RR::ArbField
@@ -40,6 +94,7 @@ mutable struct HCSystem
         p_end::Vector{AcbFieldElem},
         p_const::Vector{AcbFieldElem}=AcbFieldElem[];
         patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
+        source::Union{Nothing,HomotopySourceData}=compiled.source,
     )
         CC = !isempty(p_start) ? parent(p_start[1]) : parent(p_const[1])
         RR = ArbField(precision(CC))
@@ -51,10 +106,15 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.projective_coordinates, 1, patch_tuple, CC, RR)
+        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
     end
 
-    function HCSystem(compiled::CompiledHomotopy, CC::AcbField; patch_vector::Vector{AcbFieldElem}=AcbFieldElem[])
+    function HCSystem(
+        compiled::CompiledHomotopy,
+        CC::AcbField;
+        patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
+        source::Union{Nothing,HomotopySourceData}=compiled.source,
+    )
         RR = ArbField(precision(CC))
         if compiled.projective_patch && !isempty(patch_vector)
             throw(ArgumentError("patch_vector is no longer used for projective tracking; coordinate charts are used instead."))
@@ -64,9 +124,11 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, (), (), (), compiled.projective_coordinates, 1, patch_tuple, CC, RR)
+        new(compiled, (), (), (), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
     end
 end
+
+const SpecializedHomotopy = HCSystem
 
 function Base.show(io::IO, sys::HCSystem)
     print(
@@ -92,7 +154,7 @@ function system_with_precision(sys::HCSystem, precision_bits::Integer)
     CC = AcbField(precision_bits)
     patch_vector = _convert_acb_vector(CC, sys.patch_vector)
     rebuilt = if isempty(sys.p_start)
-        HCSystem(sys.compiled, CC; patch_vector=patch_vector)
+        HCSystem(sys.compiled, CC; patch_vector=patch_vector, source=sys.source)
     else
         HCSystem(
             sys.compiled,
@@ -100,6 +162,7 @@ function system_with_precision(sys::HCSystem, precision_bits::Integer)
             _convert_acb_vector(CC, sys.p_end),
             _convert_acb_vector(CC, sys.p_const);
             patch_vector=patch_vector,
+            source=sys.source,
         )
     end
     rebuilt.patch_idx = sys.patch_idx
@@ -164,7 +227,46 @@ function evaluate_H_augmented(sys::HCSystem, x, t)
         return [val_sys; val_patch]
     end
 end
-evaluate_H(sys::HCSystem, x, t) = evaluate_H_augmented(sys, x, t)
+
+const _TM_H_EVALUATORS = IdDict{CompiledHomotopy,Function}()
+
+function register_tm_H_evaluator!(compiled::CompiledHomotopy, evaluator::Function)
+    _TM_H_EVALUATORS[compiled] = evaluator
+    return compiled
+end
+
+function unregister_tm_H_evaluator!(compiled::CompiledHomotopy)
+    pop!(_TM_H_EVALUATORS, compiled, nothing)
+    return compiled
+end
+
+_is_taylor_model3_like(x) =
+    hasproperty(x, :c0) && hasproperty(x, :c1) && hasproperty(x, :c2) &&
+    hasproperty(x, :c3) && hasproperty(x, :rem) && hasproperty(x, :h)
+
+_use_registered_tm_H_evaluator(sys::HCSystem, x, t) =
+    haskey(_TM_H_EVALUATORS, sys.compiled) &&
+    x isa AbstractVector && !isempty(x) &&
+    _is_taylor_model3_like(first(x)) &&
+    _is_taylor_model3_like(t)
+
+function evaluate_H_default(sys::HCSystem, x, t)
+    return evaluate_H_augmented(sys, x, t)
+end
+
+function evaluate_H(sys::HCSystem, x, t)
+    if _use_registered_tm_H_evaluator(sys, x, t)
+        val_sys = _TM_H_EVALUATORS[sys.compiled](sys, x, t)
+        if !sys.projective_coordinates
+            return val_sys
+        elseif has_projective_patch(sys)
+            return [val_sys; _patch_value(sys, x)]
+        else
+            return [val_sys; x[sys.patch_idx] - 1]
+        end
+    end
+    return evaluate_H_augmented(sys, x, t)
+end
 
 function evaluate_Jac(sys::HCSystem, x, t)
     CC = sys.CC 

@@ -44,6 +44,7 @@ function compile_homotopy(H_eqs, x_vars, t_var; projective=false, patch_vector=n
     println("Compiling Direct Homotopy System...")
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
     patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
+    source = HomotopySourceData(:direct, collect(H_eqs), collect(x_vars), Any[], t_var, Any[], projective)
     
     target_vars = x_vars
     use_projective_coords = projective
@@ -58,7 +59,7 @@ function compile_homotopy(H_eqs, x_vars, t_var; projective=false, patch_vector=n
     if projective
         chart_H, chart_Jx, chart_dt = _compile_projective_charts(H_eqs, target_vars, t_var, Any[])
         println("Compilation Done.")
-        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[])
+        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[], source)
     end
     
     Jx_sub = Symbolics.jacobian(H_eqs, target_vars)
@@ -70,12 +71,13 @@ function compile_homotopy(H_eqs, x_vars, t_var; projective=false, patch_vector=n
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
     println("Compilation Done.")
-    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[])
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[], source)
 end
 
 function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
     patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
+    source = HomotopySourceData(:edge, collect(F_eqs), collect(x_vars), collect(p_vars), nothing, collect(const_vars), projective)
     @variables t_var
     n_params = length(p_vars)
     n_consts = length(const_vars)
@@ -105,7 +107,7 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_ve
     if projective
         chart_H, chart_Jx, chart_dt = _compile_projective_charts(H_sub, target_vars, t_var, [p_starts..., p_ends..., p_consts...])
         println("Compilation Done.")
-        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[])
+        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[], source)
     end
 
     Jx_sub = Symbolics.jacobian(H_sub, target_vars)
@@ -116,5 +118,5 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_ve
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
     println("Compilation Done.")
-    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[])
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[], source)
 end

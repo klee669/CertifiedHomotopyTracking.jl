@@ -32,6 +32,15 @@ end
 custom_edges = build_edges(vertices, edge_list)
 
 # solve monodromy
+USE_POSTERIORI = true
+
+edges = solve_monodromy(
+    compiled_homotopy,
+    vertices, custom_edges;
+    max_roots = 4,
+    show_progress = true,
+    posteriori = USE_POSTERIORI,
+)
 edges = solve_monodromy(compiled_homotopy, vertices, custom_edges; max_roots=4)
 
 # GAP analysis
