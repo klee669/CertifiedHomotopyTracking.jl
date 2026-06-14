@@ -1,10 +1,8 @@
 import HomotopyContinuation
 
-const HCTracePointReal = NamedTuple{(:t, :x), Tuple{Float64, Vector{ComplexF64}}}
-const HCTracePointComplex = NamedTuple{(:t, :x), Tuple{ComplexF64, Vector{ComplexF64}}}
+const HCTracePoint = NamedTuple{(:t, :x), Tuple{Float64, Vector{ComplexF64}}}
 
-_hc_trace_time(t, ::Val{true}) = Float64(real(t))
-_hc_trace_time(t, ::Val{false}) = ComplexF64(t)
+_hc_trace_time(t) = Float64(real(t))
 _hc_trace_x(x) = ComplexF64.(copy(x))
 
 function _hc_tracker_steps(tracker, field::Symbol)
@@ -34,8 +32,6 @@ applicable:
 * `extended_precision = true`
 * `automatic_differentiation = 1`
 * `include_start = true`: include the initial `(t_start, x_start)` sample.
-* `convert_t_to_real = true`: store real path times as `Float64`; otherwise store
-  times as `ComplexF64`.
 * `throw_on_failure = false`: throw an `ErrorException` if HC.jl does not report
   success.
 
@@ -55,7 +51,6 @@ function collect_hc_trace(
     extended_precision = true,
     automatic_differentiation = 1,
     include_start = true,
-    convert_t_to_real = true,
     throw_on_failure = false,
 )
     options = HomotopyContinuation.TrackerOptions(;
@@ -68,14 +63,13 @@ function collect_hc_trace(
     )
     tracker = HomotopyContinuation.Tracker(H; options = options)
 
-    time_mode = Val(convert_t_to_real)
-    trace = convert_t_to_real ? HCTracePointReal[] : HCTracePointComplex[]
+    trace = HCTracePoint[]
 
     for (i, (x, t)) in enumerate(
         HomotopyContinuation.iterator(tracker, x_start, t_start, t_target)
     )
         if include_start || i > 1
-            push!(trace, (t = _hc_trace_time(t, time_mode), x = _hc_trace_x(x)))
+            push!(trace, (t = _hc_trace_time(t), x = _hc_trace_x(x)))
         end
     end
 

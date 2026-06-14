@@ -10,11 +10,17 @@ F = [x^2 + 3*y - 4, y^2 + 3]
 G = [x^2 - 1, y^2 - 1]
 H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5,0.5))
 
+
 start_point = [CC(1), CC(-1)]
 res = track_path(H, start_point)
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
 
+cert = certify_path_a_posteriori(H, start_point; show_progress=true)
+cert.success
+cert.total_boxes
+cert.max_depth
+cert.failed_segments
 
 # ==============================================================================
 # ------------------------------------------------------------------------------
@@ -112,6 +118,14 @@ res = track_path(H, point; show_progress=true)
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
 
+
+cert = certify_path_a_posteriori(H, point; show_progress=true)
+cert.success
+cert.total_boxes
+cert.max_depth
+cert.failed_segments
+
+
 # ------------------------------------------------------------------------------
 # Example 5: Katsura 9
 # ------------------------------------------------------------------------------
@@ -148,6 +162,14 @@ res = track_path(H, point; show_progress=true)
 
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
+
+
+
+cert = certify_path_a_posteriori(H, point; show_progress=true)
+cert.success
+cert.total_boxes
+cert.max_depth
+cert.failed_segments
 
 
 # ==============================================================================

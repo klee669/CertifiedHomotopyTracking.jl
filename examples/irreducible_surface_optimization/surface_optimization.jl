@@ -37,7 +37,19 @@ compiled_homotopy = compile_edge_homotopy(F, vars, pars)
 # ------------------------------------------------------------------------------
 # 3. Solve Monodromy (Tracking)
 # ------------------------------------------------------------------------------
-edges = solve_monodromy(compiled_homotopy, vertices; max_roots=8, show_progress=true)
+USE_POSTERIORI = true
+
+edges = solve_monodromy(
+    compiled_homotopy,
+    vertices;
+    max_roots = 8,
+    show_progress = true,
+    posteriori = USE_POSTERIORI,
+    posteriori_options = (;
+        max_step_size = 0.005,
+        max_depth = 12,
+    ),
+)
 
 # ------------------------------------------------------------------------------
 # 4. GAP Group Construction
@@ -51,3 +63,16 @@ if G !== nothing
     gw = galois_width(G)
     println(gw) # 3
 end
+
+
+S4 = GAP.Globals.SymmetricGroup(4)
+S2 = GAP.Globals.SymmetricGroup(2)
+W  = GAP.Globals.WreathProduct(S4, S2)  # S4 ≀ S2
+
+println("\nIdGroup:")
+idG = GAP.Globals.IdGroup(G)
+idW = GAP.Globals.IdGroup(W)
+
+println("G = ", idG)
+println("W = ", idW)
+println("same IdGroup? ", Vector{Int}(idG) == Vector{Int}(idW))

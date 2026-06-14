@@ -13,7 +13,8 @@ export @setupfield
 
 export straight_line_homotopy, specified_system, track
 
-export track_complete_graph, get_permutations, str_convert, HCSystem, CompiledHomotopy, make_edge_system
+export track_complete_graph, get_permutations, str_convert, HCSystem, SpecializedHomotopy,
+       CompiledHomotopy, HomotopySourceData, make_edge_system
 export collect_hc_trace
 
 # Source Code Include
@@ -38,5 +39,7 @@ include("results.jl")
 include("tracking.jl")    
 include("monodromy.jl")   
 include("hc_trace.jl")
+include("posteriori_certification.jl")
+include("posteriori_tracker.jl")
 
 end # module

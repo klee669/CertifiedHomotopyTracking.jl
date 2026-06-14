@@ -29,36 +29,82 @@ p_vars = [a2100, a1110]
 # ------------------------------------------------------------------------------
 # 2. Local Helper Functions
 # ------------------------------------------------------------------------------
-function track_loop(bp, a, b, x0, p_list, i, F)
+function _track_lines27_edge(F, p_start, p_target, x_start; posteriori = false, posteriori_options = (;), show_progress = true)
+    sys = make_edge_system(F, p_start, p_target)
+    if posteriori
+        cert = certify_path_a_posteriori(
+            sys,
+            x_start;
+            show_progress = show_progress,
+            posteriori_options...,
+        )
+        return cert.success ? CC.(last(cert.hc_trace.trace).x) : nothing, cert
+    end
+
+    result = track_path(sys, x_start; t_end = 1.0, h_init = 0.1, show_progress = show_progress)
+    return succeeded(result) ? certified_region(result) : nothing, result
+end
+
+function track_loop(bp, a, b, x0, p_list, i, F; posteriori = false, posteriori_options = (;), show_progress = true)
     println("Root Number $i: Tracking the first edge")
-    F1 = make_edge_system(F, bp, a)
-    res_x1 = track_path(F1, x0; t_end=1.0, h_init=0.1, show_progress=true)
-    x1 = certified_region(res_x1)
-    if !succeeded(res_x1) return nothing, nothing end 
+    x1, res_x1 = _track_lines27_edge(
+        F,
+        bp,
+        a,
+        x0;
+        posteriori = posteriori,
+        posteriori_options = posteriori_options,
+        show_progress = show_progress,
+    )
+    x1 === nothing && return nothing, nothing
 
     println("Root Number $i: Tracking the second edge")
-    F2 = make_edge_system(F, a, b)
-    res_x2 = track_path(F2, x1; t_end=1.0, h_init=0.1, show_progress=true)
-    x2 = certified_region(res_x2)
-    if !succeeded(res_x2) return nothing, nothing end 
+    x2, res_x2 = _track_lines27_edge(
+        F,
+        a,
+        b,
+        x1;
+        posteriori = posteriori,
+        posteriori_options = posteriori_options,
+        show_progress = show_progress,
+    )
+    x2 === nothing && return nothing, nothing
 
     println("Root Number $i: Tracking the third edge")
-    F3 = make_edge_system(F, b, bp)
-    res_x3 = track_path(F3, x2; t_end=1.0, h_init=0.1, show_progress=true)
-    x3 = certified_region(res_x3)
-    if !succeeded(res_x3) return nothing, nothing end 
+    x3, res_x3 = _track_lines27_edge(
+        F,
+        b,
+        bp,
+        x2;
+        posteriori = posteriori,
+        posteriori_options = posteriori_options,
+        show_progress = show_progress,
+    )
+    x3 === nothing && return nothing, nothing
 
+    F3 = make_edge_system(F, b, bp)
     ind = search_point_certified(F3, x3, p_list)
     println("Result: Mapped to $ind")
     return x3, ind
 end
 
-function generate_perm(F, bp, a, b, p_list)
+function generate_perm(F, bp, a, b, p_list; posteriori = false, posteriori_options = (;), show_progress = true)
     n = length(p_list)
     perm = []
     res_list = []
     for i = 1:n
-        res, ind = track_loop(bp, a, b, p_list[i], p_list, i, F)
+        res, ind = track_loop(
+            bp,
+            a,
+            b,
+            p_list[i],
+            p_list,
+            i,
+            F;
+            posteriori = posteriori,
+            posteriori_options = posteriori_options,
+            show_progress = show_progress,
+        )
         
         if res === nothing 
             println("Stopped by user. Returning partial permutation.")
@@ -86,9 +132,21 @@ vertices = [v1, v2, v3]
 
 compiled_homotopy = compile_edge_homotopy(f, x_vars, p_vars)
 
+USE_POSTERIORI = true
+POSTERIORI_OPTIONS = (;
+    max_depth = 12,
+)
 
 println("\n[Loop 1] Red Loop")
-p1 = generate_perm(compiled_homotopy, red1, red2, red3, p_list) #[8, 2, 3, 4, 24, 6, 7, 1, 27, 23, 11, 16, 13, 14, 25, 12, 17, 18, 19, 20, 21, 22, 10, 5, 15, 26, 9]
+p1 = generate_perm(
+    compiled_homotopy,
+    red1,
+    red2,
+    red3,
+    p_list;
+    posteriori = USE_POSTERIORI,
+    posteriori_options = POSTERIORI_OPTIONS,
+) #[8, 2, 3, 4, 24, 6, 7, 1, 27, 23, 11, 16, 13, 14, 25, 12, 17, 18, 19, 20, 21, 22, 10, 5, 15, 26, 9]
 
 
 # green loop
@@ -96,7 +154,15 @@ green1 = [CC(-500),CC(0,0)]
 green2 = [CC(-500),CC(-800,-500)]
 green3 = [CC(-500),CC(-800,500)]
 println("\n[Loop 2] Green Loop")
-p2 = generate_perm(compiled_homotopy, green1, green2, green3, p_list) #[25, 4, 17, 2, 27, 11, 26, 15, 24, 12, 6, 10, 14, 13, 8, 23, 3, 18, 19, 22, 21, 20, 16, 9, 1, 7, 5]
+p2 = generate_perm(
+    compiled_homotopy,
+    green1,
+    green2,
+    green3,
+    p_list;
+    posteriori = USE_POSTERIORI,
+    posteriori_options = POSTERIORI_OPTIONS,
+) #[25, 4, 17, 2, 27, 11, 26, 15, 24, 12, 6, 10, 14, 13, 8, 23, 3, 18, 19, 22, 21, 20, 16, 9, 1, 7, 5]
 
 
 

@@ -49,8 +49,53 @@ function make_edge_system(
     p_end::Vector{AcbFieldElem},
     p_const::Vector{AcbFieldElem}=AcbFieldElem[];
     patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
+    source::Union{Nothing,HomotopySourceData}=compiled_sys.source,
 )
-    return HCSystem(compiled_sys, p_start, p_end, p_const; patch_vector=patch_vector)
+    return SpecializedHomotopy(compiled_sys, p_start, p_end, p_const; patch_vector=patch_vector, source=source)
+end
+
+function _posteriori_endpoint(sys_edge::HCSystem, cert)
+    if haskey(cert, :segments) && !isempty(cert.segments)
+        _, idx = findmax(seg -> seg.t_end, cert.segments)
+        seg = cert.segments[idx]
+        haskey(seg, :x_end) && return copy(seg.x_end), true
+    end
+    if haskey(cert, :hc_trace) && cert.hc_trace !== nothing && !isempty(cert.hc_trace.trace)
+        return sys_edge.CC.(last(cert.hc_trace.trace).x), true
+    end
+    return AcbFieldElem[], false
+end
+
+function _track_compiled_edge_path(
+    sys_edge::HCSystem,
+    start_point;
+    posteriori::Bool,
+    posteriori_options::NamedTuple,
+    show_progress::Bool,
+    track_options::NamedTuple,
+)
+    if posteriori
+        options = haskey(posteriori_options, :show_progress) ?
+            posteriori_options :
+            merge((; show_progress = show_progress), posteriori_options)
+        cert = certify_path_a_posteriori(
+            sys_edge,
+            ComplexF64.(start_point);
+            options...,
+        )
+        !cert.success && return AcbFieldElem[], false
+        return _posteriori_endpoint(sys_edge, cert)
+    end
+
+    y_end, success = track_path(
+        sys_edge,
+        start_point;
+        t_end = 1.0,
+        h_init = 0.1,
+        show_progress = show_progress,
+        track_options...,
+    )
+    return y_end, success
 end
 
 
@@ -225,6 +270,8 @@ function track_edge!(
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
     track_options::NamedTuple=(;),
+    posteriori::Bool=false,
+    posteriori_options::NamedTuple=(;),
 )
     if from1to2
         source_v, target_v = e.node1, e.node2
@@ -253,7 +300,14 @@ function track_edge!(
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
-        y_end, success = track_path(sys_edge, start_point; t_end=1.0, h_init=0.1, show_progress=show_progress, track_options...)
+        y_end, success = _track_compiled_edge_path(
+            sys_edge,
+            start_point;
+            posteriori = posteriori,
+            posteriori_options = posteriori_options,
+            show_progress = show_progress,
+            track_options = track_options,
+        )
         
         if success
             dest_idx = _search_solution(sys_edge, y_end, target_sols; root_match=root_match)
@@ -301,6 +355,8 @@ function solve_monodromy(
     root_match::Symbol=:heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
+    posteriori::Bool=false,
+    posteriori_options::NamedTuple=(;),
 )
     if projective && !compiled_sys.projective_patch
         throw(ArgumentError("projective=true requires compiled_sys to be built with projective=true."))
@@ -343,8 +399,32 @@ function solve_monodromy(
                 id1 = findfirst(==(e.node1), vertices)
                 id2 = findfirst(==(e.node2), vertices)
                 
-                track_edge!(compiled_sys, e, true, idx, id1, id2; show_progress=show_progress, root_match=root_match, track_options=effective_track_options)
-                track_edge!(compiled_sys, e, false, idx, id2, id1; show_progress=show_progress, root_match=root_match, track_options=effective_track_options)
+                track_edge!(
+                    compiled_sys,
+                    e,
+                    true,
+                    idx,
+                    id1,
+                    id2;
+                    show_progress = show_progress,
+                    root_match = root_match,
+                    track_options = effective_track_options,
+                    posteriori = posteriori,
+                    posteriori_options = posteriori_options,
+                )
+                track_edge!(
+                    compiled_sys,
+                    e,
+                    false,
+                    idx,
+                    id2,
+                    id1;
+                    show_progress = show_progress,
+                    root_match = root_match,
+                    track_options = effective_track_options,
+                    posteriori = posteriori,
+                    posteriori_options = posteriori_options,
+                )
 
                 counts = map(x -> length(x.correspondence12), edges)
                 @info "Status (Edge $idx done): Correspondences => $counts"
@@ -371,6 +451,8 @@ function solve_monodromy(
     root_match::Symbol=:heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
+    posteriori::Bool=false,
+    posteriori_options::NamedTuple=(;),
 )
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
@@ -383,7 +465,18 @@ function solve_monodromy(
         end
     end
     
-    return solve_monodromy(compiled_sys, vertices, edges; max_roots=max_roots, show_progress=show_progress, root_match=root_match, projective=projective, track_options=track_options)
+    return solve_monodromy(
+        compiled_sys,
+        vertices,
+        edges;
+        max_roots = max_roots,
+        show_progress = show_progress,
+        root_match = root_match,
+        projective = projective,
+        track_options = track_options,
+        posteriori = posteriori,
+        posteriori_options = posteriori_options,
+    )
 end
 
 # ------------------------------------------------------------------------------

@@ -49,10 +49,19 @@ function straight_line_homotopy(F_exprs::AbstractVector{<:Union{Num, Complex{Num
         patch_rng=patch_rng,
         const_vars=coeff_vars,
     )
+    direct_source = HomotopySourceData(
+        :direct,
+        collect(H),
+        collect(x_vars),
+        Num[__gamma_trick_internal_param__; coeff_vars],
+        t_var,
+        Num[],
+        projective,
+    )
     
     gamma_val = gamma === nothing ? CCRing(complex(randn(), randn())) : _coefficient_value(CCRing, gamma)
     coeff_vals = [_coefficient_value(CCRing, coeff) for coeff in coeff_values]
-    sys = make_edge_system(compiled_H, [gamma_val], [gamma_val], coeff_vals)
+    sys = make_edge_system(compiled_H, [gamma_val], [gamma_val], coeff_vals; source=direct_source)
     
     return sys
 end
