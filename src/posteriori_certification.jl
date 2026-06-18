@@ -21,139 +21,81 @@ mutable struct TraceCertDiagnostics
     krawczyk_validation_calls::Int
     velocity_computations::Int
     preconditioner_computations::Int
-    radii_tried_total::Int
-    radii_tried_by_success::Int
-    radii_tried_by_failure::Int
-    time_in_refine_moore_box::Float64
-    time_in_compute_preconditioner::Float64
-    time_in_compute_velocity::Float64
-    time_in_validate_step_taylor3::Float64
-    y_bound_max::Float64
-    z_bound_max::Float64
-    y_over_r_max::Float64
-    yz_bound_max::Float64
-    y_bound_success_max::Float64
-    z_bound_success_max::Float64
-    y_over_r_success_max::Float64
-    yz_bound_success_max::Float64
-    y_bound_failure_max::Float64
-    z_bound_failure_max::Float64
-    y_over_r_failure_max::Float64
-    yz_bound_failure_max::Float64
-    y_bound_success_sum::Float64
-    z_bound_success_sum::Float64
-    y_over_r_success_sum::Float64
-    yz_bound_success_sum::Float64
-    yz_success_calls::Int
-    y_bound_failure_sum::Float64
-    z_bound_failure_sum::Float64
-    y_over_r_failure_sum::Float64
-    yz_bound_failure_sum::Float64
-    yz_failure_calls::Int
-    validation_profile_calls::Int
-    time_validation_build_t::Float64
-    time_validation_evaluate_H::Float64
-    time_validation_evaluate_taylor::Float64
-    time_validation_expand_X::Float64
-    time_validation_build_T::Float64
-    time_validation_evaluate_Jac::Float64
-    time_validation_AH::Float64
-    time_validation_term1::Float64
-    time_validation_AJ::Float64
-    time_validation_term2::Float64
-    time_validation_K::Float64
-    time_validation_norms::Float64
-    alloc_validation_build_t::Int
-    alloc_validation_evaluate_H::Int
-    alloc_validation_evaluate_taylor::Int
-    alloc_validation_expand_X::Int
-    alloc_validation_build_T::Int
-    alloc_validation_evaluate_Jac::Int
-    alloc_validation_AH::Int
-    alloc_validation_term1::Int
-    alloc_validation_AJ::Int
-    alloc_validation_term2::Int
-    alloc_validation_K::Int
-    alloc_validation_norms::Int
+    local_parameter_choices::Dict{Symbol,Int}
+    time_in_refinement::Float64
+    time_in_validation::Float64
+    time_in_local_parameter_search::Float64
+    max_Y::Float64
+    max_Z::Float64
+    max_Y_over_r::Float64
 end
 
 function _trace_cert_diagnostics(mode::Symbol = :off)
     mode in (:off, :basic, :timing) ||
         throw(ArgumentError("diagnostics must be one of :off, :basic, :timing."))
-    values = Any[mode]
-    for T in fieldtypes(TraceCertDiagnostics)[2:end]
-        push!(values, T <: Integer ? 0 : 0.0)
-    end
-    return TraceCertDiagnostics(values...)
+    return TraceCertDiagnostics(
+        mode,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        Dict{Symbol,Int}(),
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    )
 end
 
 _diag_basic(d::TraceCertDiagnostics) = d.mode != :off
 _diag_timing(d::TraceCertDiagnostics) = d.mode == :timing
+_diag_basic(::Nothing) = false
+_diag_timing(::Nothing) = false
 
 function _freeze_trace_cert_diagnostics(diagnostics)
-    return (
+    snapshot = (
         node_refinements = diagnostics.node_refinements,
         midpoint_refinements = diagnostics.midpoint_refinements,
         segment_attempts = diagnostics.segment_attempts,
         krawczyk_validation_calls = diagnostics.krawczyk_validation_calls,
         velocity_computations = diagnostics.velocity_computations,
         preconditioner_computations = diagnostics.preconditioner_computations,
-        radii_tried_total = diagnostics.radii_tried_total,
-        radii_tried_by_success = diagnostics.radii_tried_by_success,
-        radii_tried_by_failure = diagnostics.radii_tried_by_failure,
-        time_in_refine_moore_box = diagnostics.time_in_refine_moore_box,
-        time_in_compute_preconditioner = diagnostics.time_in_compute_preconditioner,
-        time_in_compute_velocity = diagnostics.time_in_compute_velocity,
-        time_in_validate_step_taylor3 = diagnostics.time_in_validate_step_taylor3,
-        y_bound_max = diagnostics.y_bound_max,
-        z_bound_max = diagnostics.z_bound_max,
-        y_over_r_max = diagnostics.y_over_r_max,
-        yz_bound_max = diagnostics.yz_bound_max,
-        y_bound_success_max = diagnostics.y_bound_success_max,
-        z_bound_success_max = diagnostics.z_bound_success_max,
-        y_over_r_success_max = diagnostics.y_over_r_success_max,
-        yz_bound_success_max = diagnostics.yz_bound_success_max,
-        y_bound_failure_max = diagnostics.y_bound_failure_max,
-        z_bound_failure_max = diagnostics.z_bound_failure_max,
-        y_over_r_failure_max = diagnostics.y_over_r_failure_max,
-        yz_bound_failure_max = diagnostics.yz_bound_failure_max,
-        y_bound_success_sum = diagnostics.y_bound_success_sum,
-        z_bound_success_sum = diagnostics.z_bound_success_sum,
-        y_over_r_success_sum = diagnostics.y_over_r_success_sum,
-        yz_bound_success_sum = diagnostics.yz_bound_success_sum,
-        yz_success_calls = diagnostics.yz_success_calls,
-        y_bound_failure_sum = diagnostics.y_bound_failure_sum,
-        z_bound_failure_sum = diagnostics.z_bound_failure_sum,
-        y_over_r_failure_sum = diagnostics.y_over_r_failure_sum,
-        yz_bound_failure_sum = diagnostics.yz_bound_failure_sum,
-        yz_failure_calls = diagnostics.yz_failure_calls,
-        validation_profile_calls = diagnostics.validation_profile_calls,
-        time_validation_build_t = diagnostics.time_validation_build_t,
-        time_validation_evaluate_H = diagnostics.time_validation_evaluate_H,
-        time_validation_evaluate_taylor = diagnostics.time_validation_evaluate_taylor,
-        time_validation_expand_X = diagnostics.time_validation_expand_X,
-        time_validation_build_T = diagnostics.time_validation_build_T,
-        time_validation_evaluate_Jac = diagnostics.time_validation_evaluate_Jac,
-        time_validation_AH = diagnostics.time_validation_AH,
-        time_validation_term1 = diagnostics.time_validation_term1,
-        time_validation_AJ = diagnostics.time_validation_AJ,
-        time_validation_term2 = diagnostics.time_validation_term2,
-        time_validation_K = diagnostics.time_validation_K,
-        time_validation_norms = diagnostics.time_validation_norms,
-        alloc_validation_build_t = diagnostics.alloc_validation_build_t,
-        alloc_validation_evaluate_H = diagnostics.alloc_validation_evaluate_H,
-        alloc_validation_evaluate_taylor = diagnostics.alloc_validation_evaluate_taylor,
-        alloc_validation_expand_X = diagnostics.alloc_validation_expand_X,
-        alloc_validation_build_T = diagnostics.alloc_validation_build_T,
-        alloc_validation_evaluate_Jac = diagnostics.alloc_validation_evaluate_Jac,
-        alloc_validation_AH = diagnostics.alloc_validation_AH,
-        alloc_validation_term1 = diagnostics.alloc_validation_term1,
-        alloc_validation_AJ = diagnostics.alloc_validation_AJ,
-        alloc_validation_term2 = diagnostics.alloc_validation_term2,
-        alloc_validation_K = diagnostics.alloc_validation_K,
-        alloc_validation_norms = diagnostics.alloc_validation_norms,
+        local_parameter_choices = copy(diagnostics.local_parameter_choices),
+        max_Y = diagnostics.max_Y,
+        max_Z = diagnostics.max_Z,
+        max_Y_over_r = diagnostics.max_Y_over_r,
+    )
+    _diag_timing(diagnostics) || return snapshot
+    return merge(
+        snapshot,
+        (
+            time_in_refinement = diagnostics.time_in_refinement,
+            time_in_validation = diagnostics.time_in_validation,
+            time_in_local_parameter_search = diagnostics.time_in_local_parameter_search,
+        ),
     )
 end
+
+function _record_local_parameter_choice!(diagnostics::TraceCertDiagnostics, local_parameter)
+    _diag_basic(diagnostics) || return nothing
+    name = local_parameter.name
+    diagnostics.local_parameter_choices[name] = get(diagnostics.local_parameter_choices, name, 0) + 1
+    return nothing
+end
+_record_local_parameter_choice!(::Nothing, local_parameter) = nothing
+
+function _record_yz_max!(diagnostics::TraceCertDiagnostics, Y, Z, Y_over_r)
+    _diag_basic(diagnostics) || return nothing
+    diagnostics.max_Y = max(diagnostics.max_Y, Float64(Y))
+    diagnostics.max_Z = max(diagnostics.max_Z, Float64(Z))
+    diagnostics.max_Y_over_r = max(diagnostics.max_Y_over_r, Float64(Y_over_r))
+    return nothing
+end
+_record_yz_max!(::Nothing, Y, Z, Y_over_r) = nothing
 
 # converting HC.jl trace points to the format needed for CHT.jl certification
 # converting number types
@@ -179,27 +121,11 @@ end
 
 function _compute_preconditioner_counted(sys::HCSystem, x, t, diagnostics)
     _diag_basic(diagnostics) && (diagnostics.preconditioner_computations += 1)
-    if _diag_timing(diagnostics)
-        A = nothing
-        elapsed = @elapsed begin
-            A = compute_preconditioner(sys, x, t)
-        end
-        diagnostics.time_in_compute_preconditioner += elapsed
-        return A
-    end
     return compute_preconditioner(sys, x, t)
 end
 
 function _compute_velocity_counted(sys::HCSystem, x, t, A, diagnostics)
     _diag_basic(diagnostics) && (diagnostics.velocity_computations += 1)
-    if _diag_timing(diagnostics)
-        v = nothing
-        elapsed = @elapsed begin
-            v = compute_velocity(sys, x, t, A)
-        end
-        diagnostics.time_in_compute_velocity += elapsed
-        return v
-    end
     return compute_velocity(sys, x, t, A)
 end
 
@@ -222,7 +148,7 @@ function _certify_trace_node(
             x_refined, r_refined, A_refined, success =
                 refine_moore_box(sys, point.x, sys.CC(point.t), node_refinement_radius, A0; tau = tau)
         end
-        diagnostics.time_in_refine_moore_box += elapsed
+        diagnostics.time_in_refinement += elapsed
     else
         x_refined, r_refined, A_refined, success =
             refine_moore_box(sys, point.x, sys.CC(point.t), node_refinement_radius, A0; tau = tau)
@@ -300,14 +226,8 @@ function _certify_hc_path_a_posteriori(
     time_map = identity,
     certification = :adaptive_local_parameter,
     max_step_size_schedule = (Inf, 0.05, 0.02, 0.01),
-    t_start = 1.0,
-    t_target = 0.0,
     parameters = :default,
     max_steps = 10_000,
-    max_initial_step_size = Inf,
-    extended_precision = true,
-    automatic_differentiation = 1,
-    include_start = true,
     throw_on_hc_failure = false,
     max_depth_schedule = nothing,
     certification_kwargs...,
@@ -317,6 +237,11 @@ function _certify_hc_path_a_posteriori(
     attempts = NamedTuple[]
     last_cert = nothing
     last_trace = nothing
+    source = sys.source === nothing ? sys.compiled.source : sys.source
+    source === nothing &&
+        throw(ArgumentError("a posteriori HC tracing requires homotopy source metadata."))
+    t_start = _posteriori_default_t_start(source)
+    t_target = _posteriori_default_t_target(source)
 
     for max_step_size in max_step_size_schedule
         trace_out = collect_hc_trace(
@@ -327,10 +252,6 @@ function _certify_hc_path_a_posteriori(
             parameters = parameters,
             max_steps = max_steps,
             max_step_size = max_step_size,
-            max_initial_step_size = max_initial_step_size,
-            extended_precision = extended_precision,
-            automatic_differentiation = automatic_differentiation,
-            include_start = include_start,
             throw_on_failure = throw_on_hc_failure,
         )
         last_trace = trace_out
@@ -719,6 +640,7 @@ function _validate_local_parameter_endpoint_box_segment_once(
     tube_radius_floor,
     radius_growth,
     max_radius,
+    diagnostics,
 )
     n = length(p0.x)
     t0 = sys.CC(p0.t)
@@ -748,6 +670,7 @@ function _validate_local_parameter_endpoint_box_segment_once(
     Y = norm_inf(AH)
     best = nothing
     for inflation in _local_parameter_endpoint_box_inflation_candidates(base_radius, radius_growth, max_radius, u0, u1, Y, rho)
+        _diag_basic(diagnostics) && (diagnostics.krawczyk_validation_calls += 1)
         u_radii = _local_parameter_endpoint_box_radii(sys, u0, u1, inflation)
         U_expanded = [u_mid[i] + B[i] * sys.CC(u_radii[i]) for i in eachindex(u_mid)]
         J = _local_parameter_jacobian(sys, U_expanded, local_parameter.index, local_parameter_interval, n)
@@ -770,6 +693,7 @@ function _validate_local_parameter_endpoint_box_segment_once(
         k_norm = norm_inf(K)
         Z = _matrix_inf_norm_bound(linear_defect)
         min_radius = minimum(u_radii)
+        _record_yz_max!(diagnostics, Y, Z, Y / min_radius)
         row = (
             success = k_norm < rho && endpoint_enclosure.both && orientation.valid,
             status = k_norm < rho ? :success : :krawczyk_failed,
@@ -794,7 +718,10 @@ function _validate_local_parameter_endpoint_box_segment_once(
             orientation_valid = orientation.valid,
             method = :local_parameter_endpoint_box,
         )
-        row.success && return row
+        row.success && begin
+            _record_local_parameter_choice!(diagnostics, local_parameter)
+            return row
+        end
         if best === nothing || row.krawczyk_norm < best.krawczyk_norm
             best = row
         end
@@ -841,13 +768,25 @@ function _certify_local_parameter_endpoint_box_segment!(
     midpoint_policy,
     store_boxes,
     store_failures,
+    diagnostics,
     progress_state = nothing,
     fail_fast = true,
 )
+    _diag_basic(diagnostics) && (diagnostics.segment_attempts += 1)
     _local_parameter_maybe_show_progress!(progress_state, boxes, failures, depth)
-    candidates = _local_parameter_candidates(sys, p0, p1)
-    variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
-    candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+    candidates = nothing
+    if _diag_timing(diagnostics)
+        elapsed = @elapsed begin
+            candidates = _local_parameter_candidates(sys, p0, p1)
+            variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
+            candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+        end
+        diagnostics.time_in_local_parameter_search += elapsed
+    else
+        candidates = _local_parameter_candidates(sys, p0, p1)
+        variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
+        candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+    end
     if isempty(candidates)
         push!(failures, (parent_index = parent_index, depth = depth, status = :no_local_parameter_candidates))
         return false
@@ -856,16 +795,36 @@ function _certify_local_parameter_endpoint_box_segment!(
     best = nothing
     for local_parameter in candidates
         row = try
-            _validate_local_parameter_endpoint_box_segment_once(
-                sys,
-                p0,
-                p1,
-                local_parameter;
-                rho = rho,
-                tube_radius_floor = tube_radius_floor,
-                radius_growth = radius_growth,
-                max_radius = max_radius,
-            )
+            if _diag_timing(diagnostics)
+                timed_row = nothing
+                elapsed = @elapsed begin
+                    timed_row = _validate_local_parameter_endpoint_box_segment_once(
+                        sys,
+                        p0,
+                        p1,
+                        local_parameter;
+                        rho = rho,
+                        tube_radius_floor = tube_radius_floor,
+                        radius_growth = radius_growth,
+                        max_radius = max_radius,
+                        diagnostics = diagnostics,
+                    )
+                end
+                diagnostics.time_in_validation += elapsed
+                timed_row
+            else
+                _validate_local_parameter_endpoint_box_segment_once(
+                    sys,
+                    p0,
+                    p1,
+                    local_parameter;
+                    rho = rho,
+                    tube_radius_floor = tube_radius_floor,
+                    radius_growth = radius_growth,
+                    max_radius = max_radius,
+                    diagnostics = diagnostics,
+                )
+            end
         catch err
             err isa InterruptException && rethrow(err)
             nothing
@@ -930,6 +889,7 @@ function _certify_local_parameter_endpoint_box_segment!(
         midpoint_policy = midpoint_policy,
         store_boxes = store_boxes,
         store_failures = store_failures,
+        diagnostics = diagnostics,
         progress_state = progress_state,
         fail_fast = fail_fast,
     )
@@ -953,6 +913,7 @@ function _certify_local_parameter_endpoint_box_segment!(
         midpoint_policy = midpoint_policy,
         store_boxes = store_boxes,
         store_failures = store_failures,
+        diagnostics = diagnostics,
         progress_state = progress_state,
         fail_fast = fail_fast,
     )
@@ -1113,6 +1074,7 @@ function _validate_local_parameter_segment_once(
     tube_radius_floor,
     radius_growth,
     max_radius,
+    diagnostics,
 )
     n = length(node0.x)
     c0 = _local_parameter_value(sys, node0.x, sys.CC(node0.t), local_parameter.index)
@@ -1150,6 +1112,7 @@ function _validate_local_parameter_segment_once(
 
     best = nothing
     for radius in _segment_radius_candidates(base_radius, radius_growth, max_radius)
+        _diag_basic(diagnostics) && (diagnostics.krawczyk_validation_calls += 1)
         U_expanded = U_bound .+ (sys.CC(radius) .* B)
         local_parameter_interval = _local_parameter_interval(sys, c0, c1)
         J = _local_parameter_jacobian(sys, U_expanded, local_parameter.index, local_parameter_interval, n)
@@ -1159,6 +1122,7 @@ function _validate_local_parameter_segment_once(
         Y = norm_inf(AH)
         Z = _matrix_inf_norm_bound(linear_defect)
         Y_over_r = Y / Float64(radius)
+        _record_yz_max!(diagnostics, Y, Z, Y_over_r)
         row = (
             success = norm_inf(K) < rho,
             status = norm_inf(K) < rho ? :success : :krawczyk_failed,
@@ -1176,7 +1140,10 @@ function _validate_local_parameter_segment_once(
             x_start = node0.x,
             x_end = node1.x,
         )
-        row.success && return row
+        row.success && begin
+            _record_local_parameter_choice!(diagnostics, local_parameter)
+            return row
+        end
         if best === nothing || row.krawczyk_norm < best.krawczyk_norm
             best = row
         end
@@ -1203,9 +1170,20 @@ function _certify_local_parameter_segment!(
     local_parameter_variables,
     fail_fast = true,
 )
-    candidates = _local_parameter_candidates(sys, node0, node1)
-    variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
-    candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+    _diag_basic(diagnostics) && (diagnostics.segment_attempts += 1)
+    candidates = nothing
+    if _diag_timing(diagnostics)
+        elapsed = @elapsed begin
+            candidates = _local_parameter_candidates(sys, node0, node1)
+            variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
+            candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+        end
+        diagnostics.time_in_local_parameter_search += elapsed
+    else
+        candidates = _local_parameter_candidates(sys, node0, node1)
+        variable_indices = _selected_local_parameter_vars(sys, local_parameter_variables)
+        candidates = _filter_local_parameter_candidates(candidates, variable_indices)
+    end
     isempty(candidates) && begin
         push!(failures, (parent_index = parent_index, depth = depth, status = :no_local_parameter_candidates))
         return false
@@ -1214,16 +1192,36 @@ function _certify_local_parameter_segment!(
     best = nothing
     for local_parameter in candidates
         row = try
-            _validate_local_parameter_segment_once(
-                sys,
-                node0,
-                node1,
-                local_parameter;
-                rho = rho,
-                tube_radius_floor = tube_radius_floor,
-                radius_growth = radius_growth,
-                max_radius = max_radius,
-            )
+            if _diag_timing(diagnostics)
+                timed_row = nothing
+                elapsed = @elapsed begin
+                    timed_row = _validate_local_parameter_segment_once(
+                        sys,
+                        node0,
+                        node1,
+                        local_parameter;
+                        rho = rho,
+                        tube_radius_floor = tube_radius_floor,
+                        radius_growth = radius_growth,
+                        max_radius = max_radius,
+                        diagnostics = diagnostics,
+                    )
+                end
+                diagnostics.time_in_validation += elapsed
+                timed_row
+            else
+                _validate_local_parameter_segment_once(
+                    sys,
+                    node0,
+                    node1,
+                    local_parameter;
+                    rho = rho,
+                    tube_radius_floor = tube_radius_floor,
+                    radius_growth = radius_growth,
+                    max_radius = max_radius,
+                    diagnostics = diagnostics,
+                )
+            end
         catch err
             err isa InterruptException && rethrow(err)
             nothing
@@ -1338,6 +1336,7 @@ function certify_hc_trace_adaptive_local_parameter(
 )
     points = _prepare_trace_points(sys, trace; time_map = time_map)
     diagnostics_data = _trace_cert_diagnostics(diagnostics)
+    active_diagnostics = diagnostics_data.mode === :off ? nothing : diagnostics_data
     store_boxes = _local_parameter_store_mode(store_boxes, :store_boxes)
     store_failures = _local_parameter_store_mode(store_failures, :store_failures)
     if local_parameter_method in (:endpoint_box, :box)
@@ -1365,6 +1364,7 @@ function certify_hc_trace_adaptive_local_parameter(
                 midpoint_policy = midpoint_policy,
                 store_boxes = store_boxes,
                 store_failures = store_failures,
+                diagnostics = active_diagnostics,
                 progress_state = progress_state,
                 fail_fast = fail_fast,
             )
@@ -1403,7 +1403,7 @@ function certify_hc_trace_adaptive_local_parameter(
         points;
         node_refinement_radius = node_refinement_radius,
         tau = tau,
-        diagnostics = diagnostics_data,
+        diagnostics = active_diagnostics,
     )
 
     boxes = NamedTuple[]
@@ -1425,7 +1425,7 @@ function certify_hc_trace_adaptive_local_parameter(
             tube_radius_floor = tube_radius_floor,
             radius_growth = radius_growth,
             max_radius = max_radius,
-            diagnostics = diagnostics_data,
+            diagnostics = active_diagnostics,
             local_parameter_variables = local_parameter_variables,
             fail_fast = fail_fast,
         )

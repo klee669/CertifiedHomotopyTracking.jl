@@ -185,10 +185,10 @@ function run_highlevel_trial(mode::String, trial::Int, options)
     projective = mode == "projective"
     compiled = compile_benchmark_system(F, vars, pars; projective=projective)
 
-    elapsed = @elapsed edges = solve_monodromy(compiled, vertices; max_roots=options.max_roots, root_match=options.root_match)
-    correspondences = sum(length(e.correspondence12) for e in edges)
-    complete_edges = count(e -> length(e.correspondence12) >= options.max_roots, edges)
-    return HighLevelMetrics(mode, trial, elapsed, length(edges), correspondences, complete_edges)
+    elapsed = @elapsed monodromy_result = solve_monodromy(compiled, vertices; max_roots=options.max_roots, root_match=options.root_match)
+    correspondences = sum(length(e.correspondence12) for e in monodromy_result)
+    complete_edges = count(e -> length(e.correspondence12) >= options.max_roots, monodromy_result)
+    return HighLevelMetrics(mode, trial, elapsed, length(monodromy_result), correspondences, complete_edges)
 end
 
 function track_edge_diagnostic!(
@@ -396,7 +396,7 @@ function main(args=ARGS)
 
     if run_highlevel
         println("High-level solve_monodromy benchmark")
-        println("This measures the user-facing call: edges = solve_monodromy(compiled_homotopy, vertices; max_roots=max_roots).")
+        println("This measures the user-facing call: monodromy_result = solve_monodromy(compiled_homotopy, vertices; max_roots=max_roots).")
         println("Per-path failures, coordinate norms, iterations, and rejections are unavailable from current API in this mode.")
         highlevel_rows = HighLevelMetrics[]
         for trial in 1:options.trials

@@ -14,7 +14,7 @@ export @setupfield
 export straight_line_homotopy, specified_system, track
 
 export track_complete_graph, get_permutations, str_convert, HCSystem, SpecializedHomotopy,
-       CompiledHomotopy, HomotopySourceData, make_edge_system
+       CompiledHomotopy, HomotopySourceData, make_edge_system, MonodromyResult
 export collect_hc_trace
 
 # Source Code Include

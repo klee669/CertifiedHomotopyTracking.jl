@@ -135,6 +135,7 @@ compiled_homotopy = compile_edge_homotopy(f, x_vars, p_vars)
 USE_POSTERIORI = true
 POSTERIORI_OPTIONS = (;
     max_depth = 12,
+    certification_chart = :auto,
 )
 
 println("\n[Loop 1] Red Loop")

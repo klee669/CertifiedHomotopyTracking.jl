@@ -34,17 +34,20 @@ custom_edges = build_edges(vertices, edge_list)
 # solve monodromy
 USE_POSTERIORI = true
 
-edges = solve_monodromy(
+monodromy_result = solve_monodromy(
     compiled_homotopy,
     vertices, custom_edges;
     max_roots = 4,
     show_progress = true,
     posteriori = USE_POSTERIORI,
+    posteriori_options = (;
+        #certification_chart = :projective,
+    ),
 )
-edges = solve_monodromy(compiled_homotopy, vertices, custom_edges; max_roots=4)
+monodromy_result = solve_monodromy(compiled_homotopy, vertices, custom_edges; max_roots=4)
 
 # GAP analysis
-G = build_gap_group(4, edges) 
+G = build_gap_group(4, monodromy_result) 
 if G !== nothing
     println("Structure Description:")
     println(GAP.Globals.StructureDescription(G)) 

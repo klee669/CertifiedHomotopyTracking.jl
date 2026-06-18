@@ -3,7 +3,7 @@
 # ------------------------------------------------------------------------------
 # Exporting Vertex/Edge allows users to inspect results and build custom graphs
 export solve_monodromy, build_gap_group, vertex, edge, parameter_points, galois_width,
-    Edge, Vertex, search_point, search_point_certified, same_root_krawczyk, build_edges
+    Edge, Vertex, MonodromyResult, search_point, search_point_certified, same_root_krawczyk, build_edges
 
 # ------------------------------------------------------------------------------
 # Data Structures
@@ -23,6 +23,17 @@ mutable struct Edge
     correspondence21::Vector{Tuple{Int, Int}}
 end
 
+struct MonodromyResult
+    vertices::Vector{Vertex}
+    edges::Vector{Edge}
+    success::Bool
+    status::Symbol
+    iterations::Int
+    stagnant_iterations::Int
+    max_roots::Int
+    diagnostics::NamedTuple
+end
+
 # Constructors
 vertex(p::Vector) = Vertex(p, PointType[], [])
 vertex(p::Vector, x::Vector) = Vertex(p, x, [])
@@ -30,6 +41,14 @@ edge(p::Vertex, q::Vertex) = Edge(p, q, Tuple{Int,Int}[], Tuple{Int,Int}[])
 
 Base.show(io::IO, v::Vertex) = print(io, "Vertex($(length(v.sols)) solutions)")
 Base.show(io::IO, e::Edge) = print(io, "Edge($(length(e.correspondence12)) correspondences)")
+Base.show(io::IO, result::MonodromyResult) = print(
+    io,
+    "MonodromyResult(status=$(result.status), success=$(result.success), edges=$(length(result.edges)), iterations=$(result.iterations))",
+)
+Base.length(result::MonodromyResult) = length(result.edges)
+Base.isempty(result::MonodromyResult) = isempty(result.edges)
+Base.getindex(result::MonodromyResult, i::Int) = result.edges[i]
+Base.iterate(result::MonodromyResult, state...) = iterate(result.edges, state...)
 
 function build_edges(vertices::Vector{Vertex}, edge_pairs::Vector{Tuple{Int, Int}})
     custom_edges = Edge[]
@@ -55,6 +74,9 @@ function make_edge_system(
 end
 
 function _posteriori_endpoint(sys_edge::HCSystem, cert)
+    if haskey(cert, :affine_endpoint)
+        return sys_edge.CC.(cert.affine_endpoint), true
+    end
     if haskey(cert, :segments) && !isempty(cert.segments)
         _, idx = findmax(seg -> seg.t_end, cert.segments)
         seg = cert.segments[idx]
@@ -64,6 +86,76 @@ function _posteriori_endpoint(sys_edge::HCSystem, cert)
         return sys_edge.CC.(last(cert.hc_trace.trace).x), true
     end
     return AcbFieldElem[], false
+end
+
+function _empty_monodromy_diagnostics()
+    return (
+        total_attempted_paths = 0,
+        total_successful_paths = 0,
+        total_failed_paths = 0,
+        total_skipped_failed_paths = 0,
+        failed_paths = NamedTuple[],
+        skipped_failed_paths = NamedTuple[],
+    )
+end
+
+function _posteriori_failure_summary(cert)
+    cert === nothing && return (;)
+    summary = (
+        success = haskey(cert, :success) ? cert.success : missing,
+        status = haskey(cert, :status) ? cert.status : missing,
+        method = haskey(cert, :method) ? cert.method : missing,
+        certification_chart = haskey(cert, :certification_chart) ? cert.certification_chart : missing,
+        total_boxes = haskey(cert, :total_boxes) ? cert.total_boxes : missing,
+        original_segments = haskey(cert, :original_segments) ? cert.original_segments : missing,
+        max_depth = haskey(cert, :max_depth) ? cert.max_depth : missing,
+        max_krawczyk_norm = haskey(cert, :max_krawczyk_norm) ? cert.max_krawczyk_norm : missing,
+        max_step_size = haskey(cert, :max_step_size) ? cert.max_step_size : missing,
+        failed_segments = haskey(cert, :failed_segments) ? length(cert.failed_segments) : missing,
+    )
+    return summary
+end
+
+function _record_monodromy_failure!(diagnostics, failure)
+    diagnostics === nothing && return nothing
+    push!(diagnostics.failed_paths, failure)
+    return nothing
+end
+
+function _record_monodromy_skip!(diagnostics, skipped)
+    diagnostics === nothing && return nothing
+    push!(diagnostics.skipped_failed_paths, skipped)
+    return nothing
+end
+
+function _freeze_monodromy_diagnostics(diagnostics)
+    diagnostics === nothing && return _empty_monodromy_diagnostics()
+    return (
+        total_attempted_paths = diagnostics.total_attempted_paths[],
+        total_successful_paths = diagnostics.total_successful_paths[],
+        total_failed_paths = diagnostics.total_failed_paths[],
+        total_skipped_failed_paths = diagnostics.total_skipped_failed_paths[],
+        failed_paths = copy(diagnostics.failed_paths),
+        skipped_failed_paths = copy(diagnostics.skipped_failed_paths),
+    )
+end
+
+function _monodromy_diagnostics_state(enabled::Bool)
+    enabled || return nothing
+    return (
+        total_attempted_paths = Ref(0),
+        total_successful_paths = Ref(0),
+        total_failed_paths = Ref(0),
+        total_skipped_failed_paths = Ref(0),
+        failed_paths = NamedTuple[],
+        skipped_failed_paths = NamedTuple[],
+    )
+end
+
+function _posteriori_diagnostics_requested(posteriori::Bool, posteriori_options::NamedTuple)
+    posteriori || return false
+    mode = get(posteriori_options, :diagnostics, :off)
+    return mode !== :off && mode != false && mode !== nothing
 end
 
 function _track_compiled_edge_path(
@@ -83,8 +175,9 @@ function _track_compiled_edge_path(
             ComplexF64.(start_point);
             options...,
         )
-        !cert.success && return AcbFieldElem[], false
-        return _posteriori_endpoint(sys_edge, cert)
+        !cert.success && return AcbFieldElem[], false, cert
+        y_end, success = _posteriori_endpoint(sys_edge, cert)
+        return y_end, success, cert
     end
 
     y_end, success = track_path(
@@ -95,7 +188,7 @@ function _track_compiled_edge_path(
         show_progress = show_progress,
         track_options...,
     )
-    return y_end, success
+    return y_end, success, nothing
 end
 
 
@@ -115,8 +208,10 @@ function solve_monodromy(
     vertices::Vector{Vertex};
     radius::Number = 0.1,
     max_roots::Int = 20,
+    max_attempts::Int = 10,
     predictor::Bool = true,
     show_progress::Bool = true,
+    return_result::Bool = true,
 )
     # 1. Initialize Edges (Connect all vertices)
     edges = Edge[]
@@ -133,10 +228,13 @@ function solve_monodromy(
     
     # 2. Main Loop with Interrupt Handling
     try
+        iter = 0
+        status = :partial
         iter_stagnant = 0
         total_correspondences = 0
         
         while true
+            iter += 1
             current_correspondences = sum(map(e -> length(e.correspondence12), edges))
             
             # Check progress
@@ -150,11 +248,13 @@ function solve_monodromy(
             # Stopping conditions
             if all(e -> length(e.correspondence12) == max_roots, edges)
                 @info "Success: All edges reached $max_roots correspondences."
+                status = :success
                 break
             end
 
-            if iter_stagnant > 10
-                @warn "Stopping: No new solutions found after 10 iterations."
+            if iter_stagnant > max_attempts
+                @warn "Stopping: No new solutions found after $max_attempts iterations."
+                status = :stagnant
                 break
             end
 
@@ -179,14 +279,34 @@ function solve_monodromy(
             @warn "Computation interrupted by user."
             @warn "Returning vertices and edges computed SO FAR."
             @warn "You can resume or analyze the partial data."
-            return edges
+            result = MonodromyResult(
+                vertices,
+                edges,
+                false,
+                :interrupted,
+                @isdefined(iter) ? iter : 0,
+                @isdefined(iter_stagnant) ? iter_stagnant : 0,
+                max_roots,
+                _empty_monodromy_diagnostics(),
+            )
+            return return_result ? result : edges
         else
             # Re-throw other unexpected errors
             rethrow(e)
         end
     end
 
-    return edges
+    result = MonodromyResult(
+        vertices,
+        edges,
+        (@isdefined(status) ? status : :partial) === :success,
+        @isdefined(status) ? status : :partial,
+        @isdefined(iter) ? iter : 0,
+        @isdefined(iter_stagnant) ? iter_stagnant : 0,
+        max_roots,
+        _empty_monodromy_diagnostics(),
+    )
+    return return_result ? result : edges
 end
 
 """
@@ -272,6 +392,8 @@ function track_edge!(
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
+    failed_paths=nothing,
+    diagnostics=nothing,
 )
     if from1to2
         source_v, target_v = e.node1, e.node2
@@ -285,7 +407,26 @@ function track_edge!(
     target_sols = target_v.sols
     
     tracked_indices = Set(x[1] for x in c_forward)
-    untracked_indices = [i for i in 1:length(source_sols) if !(i in tracked_indices)]
+    untracked_indices = Int[]
+    for i in 1:length(source_sols)
+        i in tracked_indices && continue
+        key = (edge_idx, from1to2, i)
+        if failed_paths !== nothing && key in failed_paths
+            diagnostics !== nothing && (diagnostics.total_skipped_failed_paths[] += 1)
+            _record_monodromy_skip!(
+                diagnostics,
+                (
+                    edge_index = edge_idx,
+                    direction = from1to2 ? :forward : :backward,
+                    source_vertex = id_src,
+                    target_vertex = id_dest,
+                    source_index = i,
+                ),
+            )
+            continue
+        end
+        push!(untracked_indices, i)
+    end
 
     if isempty(untracked_indices)
         return
@@ -300,7 +441,8 @@ function track_edge!(
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
-        y_end, success = _track_compiled_edge_path(
+        diagnostics !== nothing && (diagnostics.total_attempted_paths[] += 1)
+        y_end, success, cert = _track_compiled_edge_path(
             sys_edge,
             start_point;
             posteriori = posteriori,
@@ -310,6 +452,7 @@ function track_edge!(
         )
         
         if success
+            diagnostics !== nothing && (diagnostics.total_successful_paths[] += 1)
             dest_idx = _search_solution(sys_edge, y_end, target_sols; root_match=root_match)
             
             if dest_idx === nothing
@@ -335,6 +478,22 @@ function track_edge!(
                 end
             end
         else
+            diagnostics !== nothing && (diagnostics.total_failed_paths[] += 1)
+            failed_paths !== nothing && push!(failed_paths, (edge_idx, from1to2, src_idx))
+            _record_monodromy_failure!(
+                diagnostics,
+                merge(
+                    (
+                        edge_index = edge_idx,
+                        direction = from1to2 ? :forward : :backward,
+                        source_vertex = id_src,
+                        target_vertex = id_dest,
+                        source_index = src_idx,
+                        reason = posteriori ? :posteriori_failed : :tracking_failed,
+                    ),
+                    _posteriori_failure_summary(cert),
+                ),
+            )
             printstyled("x", color=:red, bold=true)
         end
     end
@@ -346,17 +505,30 @@ end
 
 
 
+"""
+    solve_monodromy(compiled_sys, vertices, edges; kwargs...)
+
+Track the given graph for a compiled homotopy and return a
+`MonodromyResult`. The result stores the mutated `vertices`, `edges`,
+success/status metadata, iteration counts, and optional diagnostics. Set
+`return_result = false` for the legacy `Vector{Edge}` return value.
+
+Within one solve run, paths that already failed are cached and skipped on later
+iterations with the same options.
+"""
 function solve_monodromy(
     compiled_sys::CompiledHomotopy,
     vertices::Vector{Vertex},
     edges::Vector{Edge};
     max_roots=20,
+    max_attempts::Int=10,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
+    return_result::Bool=true,
 )
     if projective && !compiled_sys.projective_patch
         throw(ArgumentError("projective=true requires compiled_sys to be built with projective=true."))
@@ -365,6 +537,11 @@ function solve_monodromy(
     iter = 0
     iter_stagnant = 0
     total_correspondences = 0
+    status = :partial
+    failed_paths = Set{Tuple{Int,Bool,Int}}()
+    diagnostics_state = _monodromy_diagnostics_state(
+        _posteriori_diagnostics_requested(posteriori, posteriori_options),
+    )
     
     try
         while true
@@ -387,11 +564,13 @@ function solve_monodromy(
             
             if all(e -> length(e.correspondence12) == max_roots, edges)
                 println("Success! All edges reached $max_roots correspondences.")
+                status = :success
                 break
             end
 
-            if iter_stagnant > 10
-                println("Stopping: No new solutions found after 10 iterations.")
+            if iter_stagnant > max_attempts
+                println("Stopping: No new solutions found after $max_attempts iterations.")
+                status = :stagnant
                 break
             end
             
@@ -411,6 +590,8 @@ function solve_monodromy(
                     track_options = effective_track_options,
                     posteriori = posteriori,
                     posteriori_options = posteriori_options,
+                    failed_paths = failed_paths,
+                    diagnostics = diagnostics_state,
                 )
                 track_edge!(
                     compiled_sys,
@@ -424,6 +605,8 @@ function solve_monodromy(
                     track_options = effective_track_options,
                     posteriori = posteriori,
                     posteriori_options = posteriori_options,
+                    failed_paths = failed_paths,
+                    diagnostics = diagnostics_state,
                 )
 
                 counts = map(x -> length(x.correspondence12), edges)
@@ -435,24 +618,48 @@ function solve_monodromy(
         if isa(e, InterruptException)
             println("\n\nComputation interrupted by user.")
             println("Returning vertices and edges computed SO FAR.")
-            return edges
+            status = :interrupted
+            result = MonodromyResult(
+                vertices,
+                edges,
+                false,
+                status,
+                iter,
+                iter_stagnant,
+                max_roots,
+                _freeze_monodromy_diagnostics(diagnostics_state),
+            )
+            return return_result ? result : edges
         else
             rethrow(e)
         end
     end
     
-    return edges
+    success = status === :success
+    result = MonodromyResult(
+        vertices,
+        edges,
+        success,
+        status,
+        iter,
+        iter_stagnant,
+        max_roots,
+        _freeze_monodromy_diagnostics(diagnostics_state),
+    )
+    return return_result ? result : edges
 end
 function solve_monodromy(
     compiled_sys::CompiledHomotopy,
     vertices::Vector{Vertex};
     max_roots=20,
+    max_attempts::Int=10,
     show_progress::Bool=false,
     root_match::Symbol=:heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
+    return_result::Bool=true,
 )
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
@@ -470,12 +677,14 @@ function solve_monodromy(
         vertices,
         edges;
         max_roots = max_roots,
+        max_attempts = max_attempts,
         show_progress = show_progress,
         root_match = root_match,
         projective = projective,
         track_options = track_options,
         posteriori = posteriori,
         posteriori_options = posteriori_options,
+        return_result = return_result,
     )
 end
 
@@ -505,6 +714,9 @@ function build_gap_group(max_roots::Int, edges::Vector{Edge})
     
     return G
 end
+
+build_gap_group(max_roots::Int, result::MonodromyResult) =
+    build_gap_group(max_roots, result.edges)
 
 """
     galois_width(G)
@@ -717,6 +929,9 @@ function complete_correspondences(rc::Int, E::Vector{Edge})
         length(map(j -> j[2], e.correspondence21)) == rc, E)
 end
 
+complete_correspondences(rc::Int, result::MonodromyResult) =
+    complete_correspondences(rc, result.edges)
+
 function neighbor(v::Vertex, e::Edge)
     if v == e.node1
         return e.node2
@@ -820,3 +1035,6 @@ function get_permutations(rc::Number, E::Vector{Edge})
 
     return perms
 end
+
+get_permutations(rc::Number, result::MonodromyResult) =
+    get_permutations(rc, result.edges)

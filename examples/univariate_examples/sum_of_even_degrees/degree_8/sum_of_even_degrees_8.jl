@@ -99,13 +99,13 @@ for n_nodes in 3:6
                     rand_u = [CC(cis(rand()*2*pi)) for _ in 1:length(pars)]
                     push!(vertices, vertex(rand_u))
                 end
-                edges = solve_monodromy(compiled_homotopy, vertices; max_roots=deg)
+                monodromy_result = solve_monodromy(compiled_homotopy, vertices; max_roots=deg)
 
 
-                if isempty(edges)
-                    throw(ErrorException("No edges were generated."))
+                if isempty(monodromy_result)
+                    throw(ErrorException("No monodromy result was generated."))
                 end
-                if length(edges[1].correspondence12) != deg
+                if length(monodromy_result[1].correspondence12) != deg
                     fail_correspondence_count += 1
                 end
 
@@ -113,7 +113,7 @@ for n_nodes in 3:6
                 save_path = joinpath(path_name, dummy_name)
 
                 dummy_filename = joinpath(path_name, dummy_name * ".txt")
-                perms = get_permutations(length(edges[1].correspondence12), edges)
+                perms = get_permutations(length(monodromy_result[1].correspondence12), monodromy_result)
                 str_convert(perms, dummy_filename, "H") 
                 
                 cmd_dummy = string("Read(\"", dummy_filename, "\");")
