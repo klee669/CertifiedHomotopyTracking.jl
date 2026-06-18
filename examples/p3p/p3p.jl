@@ -32,14 +32,14 @@ r = .1;
 # ------------------------------------------------------------------------------
 println("Starting Monodromy Tracking...")
 
-edges = solve_monodromy(F, vs; max_roots=8)
+monodromy_result = solve_monodromy(F, vs; max_roots=8)
 
 # ------------------------------------------------------------------------------
 # 4. GAP Group Construction
 # ------------------------------------------------------------------------------
 println("Building GAP Group...")
 
-G = build_gap_group(8, edges)
+G = build_gap_group(8, monodromy_result)
 
 # ------------------------------------------------------------------------------
 # 5. Analysis (GAP)

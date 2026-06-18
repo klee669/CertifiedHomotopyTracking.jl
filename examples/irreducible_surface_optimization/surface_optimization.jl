@@ -27,7 +27,7 @@ x0 = [CC(1.23836,-.422501), CC(1.19574,-1.0474), CC(2.08916,1.85256), CC(-.01267
 v1 = vertex(bp,[x0])
 vertices = [v1]
 
-for i in 1:3
+for i in 1:4
     rand_u = [CC(cis(rand()*2*pi)) for _ in 1:length(pars)]
     push!(vertices, vertex(rand_u))
 end
@@ -39,22 +39,22 @@ compiled_homotopy = compile_edge_homotopy(F, vars, pars)
 # ------------------------------------------------------------------------------
 USE_POSTERIORI = true
 
-edges = solve_monodromy(
+monodromy_result = solve_monodromy(
     compiled_homotopy,
     vertices;
     max_roots = 8,
     show_progress = true,
     posteriori = USE_POSTERIORI,
     posteriori_options = (;
-        max_step_size = 0.005,
-        max_depth = 12,
+        max_depth = 20,
+        certification_chart = :auto,
     ),
 )
 
 # ------------------------------------------------------------------------------
 # 4. GAP Group Construction
 # ------------------------------------------------------------------------------
-G = build_gap_group(8, edges) # Find a group of size 8 from edge correspondences
+G = build_gap_group(8, monodromy_result) # Find a group of size 8 from edge correspondences
 
 if G !== nothing
     println("Structure Description:")

@@ -37,14 +37,14 @@ vs = parameter_points(v1, 20, 4)
 # ------------------------------------------------------------------------------
 println("Starting Monodromy Tracking...")
 
-edges = solve_monodromy(F, vs; max_roots=20)
+monodromy_result = solve_monodromy(F, vs; max_roots=20)
 
 # ------------------------------------------------------------------------------
 # 4. GAP Group Construction
 # ------------------------------------------------------------------------------
 println("Building GAP Group...")
 
-G = build_gap_group(20, edges)
+G = build_gap_group(20, monodromy_result)
 
 # ------------------------------------------------------------------------------
 # 5. Analysis (GAP)
