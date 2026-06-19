@@ -194,7 +194,7 @@ version = "0.2.7"
 deps = ["AbstractAlgebra", "DynamicPolynomials", "GAP", "HomotopyContinuation", "LinearAlgebra", "MultivariatePolynomials", "Nemo", "Reexport", "Symbolics"]
 path = "."
 uuid = "eb899720-675b-4191-acdc-9a7e63317b5e"
-version = "0.2.0"
+version = "0.2.1"
 
 [[deps.CloseOpenIntervals]]
 deps = ["Static", "StaticArrayInterface"]
