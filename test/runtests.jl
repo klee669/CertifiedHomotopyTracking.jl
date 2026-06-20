@@ -6,6 +6,61 @@ import HomotopyContinuation
     @test true
 end
 
+@testset "Static variety system wrapper" begin
+    @variables x y
+    CC = AcbField(128)
+
+    compiled = compile_system([x^2 + y^2 - 1], [x, y])
+    sys = HCSystem(compiled, CC)
+    p = [CC(1), CC(0)]
+
+    @test evaluate_H(sys, p, CC(0))[1] == 0
+    @test size(evaluate_Jac(sys, p, CC(0))) == (1, 2)
+
+    curve = variety_system([x^2 + (1 + im) * y^2 - 1], [x, y]; CCRing=CC)
+    @test system(curve) isa HCSystem
+    @test evaluate_system(curve, p)[1] == 0
+    @test size(jacobian_system(curve, p)) == (1, 2)
+
+    frame = local_tangent_normal_frame(curve, p)
+    @test frame.dim == 1
+    @test frame.rank == 1
+    passed, _ = krawczyk_test(curve, p, frame, 1e-3, 1e-3)
+    @test passed
+
+    box = refine_moore_box(curve, [CC(1.0), CC(1e-8)], 1e-3)
+    @test box.success
+    @test box.frame.dim == 1
+    @test box.normal_radius > 1e-3
+
+    square = variety_system([x^2 - 1], [x]; CCRing=CC)
+    root_box = refine_moore_box(square, [CC(1.01)], 0.1)
+    @test root_box.success
+    @test root_box.frame.dim == 0
+    @test abs(convert_to_double_int(root_box.center[1]) - 1) < 1e-8
+
+    curve_approx = certified_variety_approximation(
+        variety_system([x^2 + y^2 - 1], [x, y]; CCRing=CC),
+        [CC(1), CC(0)];
+        tangent_radius=1e-3,
+        normal_radius=1e-3,
+        max_boxes=5,
+    )
+    @test length(curve_approx.boxes) == 5
+    @test all(box -> box.success && box.frame.dim == 1, curve_approx.boxes)
+
+    @variables z
+    surface_approx = certified_variety_approximation(
+        variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC),
+        [CC(1), CC(0), CC(0)];
+        tangent_radius=1e-3,
+        normal_radius=1e-3,
+        max_boxes=7,
+    )
+    @test length(surface_approx.boxes) == 7
+    @test all(box -> box.success && box.frame.dim == 2, surface_approx.boxes)
+end
+
 @testset "HomotopyContinuation numerical trace" begin
     HomotopyContinuation.@var x
     G = HomotopyContinuation.System([x^2 - 1])

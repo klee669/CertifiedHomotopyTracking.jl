@@ -16,6 +16,11 @@ export straight_line_homotopy, specified_system, track
 export track_complete_graph, get_permutations, str_convert, HCSystem, SpecializedHomotopy,
        CompiledHomotopy, HomotopySourceData, make_edge_system, MonodromyResult
 export collect_hc_trace
+export compile_system, AlgebraicVarietySystem, VarietyFrame, VarietyBox,
+       VarietyApproximation,
+       variety_system, system, evaluate_system, jacobian_system,
+       local_tangent_normal_frame,
+       certified_variety_approximation, export_variety_obj
 
 # Source Code Include
 
@@ -25,8 +30,9 @@ include("internals/linear_algebra.jl")
 include("internals/systems.jl")
 include("internals/homotopy_constructor.jl") 
 include("internals/taylor_model.jl") 
-include("internals/moore_box.jl")       
 include("internals/krawczyk.jl")        
+include("variety_system.jl")
+include("internals/moore_box.jl")       
 include("internals/predictors.jl")
 include("internals/tracking_modules.jl") 
 include("internals/homogenize.jl") 

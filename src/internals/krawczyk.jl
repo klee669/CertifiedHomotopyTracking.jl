@@ -26,11 +26,19 @@ function _fill_unit_box!(B::AbstractVector{AcbFieldElem}, CC::AcbField, RR::ArbF
     return B
 end
 
-function KrawczykValidationCache(CC::AcbField, RR::ArbField, n::Integer)
-    B = Vector{AcbFieldElem}(undef, n)
-    _fill_unit_box!(B, CC, RR)
+function _acb_identity_matrix(CC::AcbField, n::Integer)
     I_mat = Matrix{AcbFieldElem}(undef, n, n)
-    _fill_identity!(I_mat, CC)
+    return _fill_identity!(I_mat, CC)
+end
+
+function _acb_unit_box_vector(CC::AcbField, RR::ArbField, n::Integer)
+    B = Vector{AcbFieldElem}(undef, n)
+    return _fill_unit_box!(B, CC, RR)
+end
+
+function KrawczykValidationCache(CC::AcbField, RR::ArbField, n::Integer)
+    B = _acb_unit_box_vector(CC, RR, n)
+    I_mat = _acb_identity_matrix(CC, n)
     return KrawczykValidationCache(
         TMCache(CC),
         B,
@@ -108,9 +116,7 @@ function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::
     CC = sys.CC; RR = sys.RR
     n = length(x)
 
-    one_int = RR("0 +/- 1") 
-    b_int = CC(one_int, one_int)
-    B = [b_int for _ in 1:n]
+    B = _acb_unit_box_vector(CC, RR, n)
     
     fx = evaluate_H(sys, x, t)
     x_expanded = x .+ (B .* CC(r))
@@ -118,10 +124,7 @@ function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::
     
     term1 = -(A * fx) ./ CC(r)
     
-    I_mat = Matrix{AcbFieldElem}(undef, n, n)
-    for i in 1:n, j in 1:n
-        I_mat[i,j] = (i == j ? CC(1) : CC(0))
-    end
+    I_mat = _acb_identity_matrix(CC, n)
     
     term2 = (I_mat - A * Jx) * B
     K = term1 + term2
