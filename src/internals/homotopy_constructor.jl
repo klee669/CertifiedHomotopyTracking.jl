@@ -1,4 +1,4 @@
-export compile_edge_homotopy, compile_homotopy
+export compile_edge_homotopy, compile_homotopy, compile_system
 
 function _projective_chart_vars(n::Int)
     return only(@variables z[1:n])
@@ -67,6 +67,50 @@ function compile_homotopy(H_eqs, x_vars, t_var; projective=false, patch_vector=n
     compile_args = [target_vars, t_var]
     
     func_H_raw = build_function(H_eqs, compile_args...; expression=Val{false})[1]
+    func_Jx_raw = build_function(Jx_sub, compile_args...; expression=Val{false})[1]
+    func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
+
+    println("Compilation Done.")
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[], source)
+end
+
+function compile_system(F_eqs, x_vars; projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
+    println("Compiling Static Polynomial System...")
+    patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
+    patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
+    @variables t_var
+    n_consts = length(const_vars)
+    @variables p_consts[1:n_consts]
+
+    subs_dict = Dict{Any, Any}()
+    for i in 1:n_consts
+        subs_dict[const_vars[i]] = p_consts[i]
+    end
+    F_sub = isempty(subs_dict) ? collect(F_eqs) : [Symbolics.substitute(eq, subs_dict) for eq in F_eqs]
+    source = HomotopySourceData(:system, collect(F_eqs), collect(x_vars), Any[], nothing, collect(const_vars), projective)
+
+    target_vars = x_vars
+    use_projective_coords = projective
+
+    if use_projective_coords
+        @variables u0
+        target_vars = [u0; x_vars]
+        F_sub = homogenize_system(F_sub, x_vars, u0)
+        println("-> System Homogenized. Vars: $target_vars")
+    end
+
+    compile_args = [target_vars, t_var, p_consts...]
+
+    if projective
+        chart_H, chart_Jx, chart_dt = _compile_projective_charts(F_sub, target_vars, t_var, p_consts)
+        println("Compilation Done.")
+        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[], source)
+    end
+
+    Jx_sub = Symbolics.jacobian(F_sub, target_vars)
+    dt_sub = Symbolics.derivative.(F_sub, t_var)
+
+    func_H_raw = build_function(F_sub, compile_args...; expression=Val{false})[1]
     func_Jx_raw = build_function(Jx_sub, compile_args...; expression=Val{false})[1]
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
