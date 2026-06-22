@@ -1045,10 +1045,11 @@ function _construct_local_parameter_hermite_tm(sys::HCSystem, u0, u1, du0, du1, 
     h_cc = c1 - c0
     h_mid = _local_parameter_mid_float(real(h_cc))
     abs(h_mid) > 0 || throw(ArgumentError("local_parameter interval has zero width."))
+    orientation = h_mid > 0 ? 1 : -1
     h2 = h_cc^2
     h3 = h_cc^3
-    shift = h_cc / CC(2)
-    h_arb = RR(abs(h_mid) / 2)
+    h_arb = RR(abs(h_mid))
+    direction = CC(orientation)
 
     tm_vec = Vector{TaylorModel3{AcbFieldElem,ArbFieldElem}}(undef, length(u0))
     for i in eachindex(u0)
@@ -1057,10 +1058,7 @@ function _construct_local_parameter_hermite_tm(sys::HCSystem, u0, u1, du0, du1, 
         a1 = du0[i]
         a2 = 3 * dx / h2 - (2 * du0[i] + du1[i]) / h_cc
         a3 = (du0[i] + du1[i]) / h2 - 2 * dx / h3
-        c_0 = a0 + a1 * shift + a2 * shift^2 + a3 * shift^3
-        c_1 = a1 + 2 * a2 * shift + 3 * a3 * shift^2
-        c_2 = a2 + 3 * a3 * shift
-        tm_vec[i] = TaylorModel3(c_0, c_1, c_2, a3, CC(0), h_arb)
+        tm_vec[i] = TaylorModel3(a0, a1 * direction, a2, a3 * direction, CC(0), h_arb)
     end
     return tm_vec
 end
@@ -1087,11 +1085,12 @@ function _validate_local_parameter_segment_once(
 
     c_mid = (c0 + c1) / sys.CC(2)
     local_parameter_delta = _local_parameter_mid_float(real(c1 - c0))
-    local_parameter_half = abs(local_parameter_delta) / 2
-    local_parameter_tm = TaylorModel3(c_mid, sys.CC(1), sys.CC(0), sys.CC(0), sys.CC(0), sys.RR(local_parameter_half))
+    local_parameter_abs = abs(local_parameter_delta)
+    local_parameter_orientation = local_parameter_delta > 0 ? 1 : -1
+    local_parameter_tm = TaylorModel3(c0, sys.CC(local_parameter_orientation), sys.CC(0), sys.CC(0), sys.CC(0), sys.RR(local_parameter_abs))
     x_tm, t_tm = _local_parameter_reconstruct_x_t(sys, U_tm, local_parameter.index, local_parameter_tm, n)
 
-    U_mid = [tm.c0 for tm in U_tm]
+    U_mid = [(u0[i] + u1[i]) / sys.CC(2) for i in eachindex(u0)]
     A = inv_acb(_local_parameter_jacobian(sys, U_mid, local_parameter.index, c_mid, n))
     F_tm = _local_parameter_real_rows_tm(sys, evaluate_H(sys, x_tm, t_tm))
 

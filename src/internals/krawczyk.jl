@@ -193,7 +193,8 @@ function validate_step_taylor3_diagnostics(
     end
 
     T_expanded, time_build_T, alloc_build_T = _profiled_validation_step(profile_validation) do
-        CC(t_start) + CC(RR(0), RR(h))
+        h_rr = RR(h)
+        CC(t_start) + _tm_real_interval(CC, h_rr)
     end
 
     J_val, time_evaluate_Jac, alloc_evaluate_Jac = _profiled_validation_step(profile_validation) do

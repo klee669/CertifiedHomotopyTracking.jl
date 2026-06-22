@@ -6,6 +6,18 @@ import HomotopyContinuation
     @test true
 end
 
+@testset "Taylor model real domain interval" begin
+    RR = ArbField(128)
+    CC = AcbField(128)
+    h = RR(0.1)
+    interval = CertifiedHomotopyTracking._tm_real_interval(CC, h)
+
+    @test contains(real(interval), RR(0))
+    @test contains(real(interval), h)
+    @test contains(imag(interval), RR(0))
+    @test Nemo.radius(imag(interval)) == 0
+end
+
 @testset "Static variety system wrapper" begin
     @variables x y
     CC = AcbField(128)

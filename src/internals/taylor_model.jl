@@ -1,5 +1,13 @@
 export TaylorModel3, evaluate_taylor
 
+function _tm_real_interval(CC::AcbField, h::ArbFieldElem)
+    RR = parent(h)
+    upper = Nemo.midpoint(h) + Nemo.radius(h)
+    half_width = RR(upper / 2)
+    real_interval = Nemo.ball(half_width, half_width)
+    return CC(real_interval, RR(0))
+end
+
 struct TaylorModel3{C,R}
     c0::C
     c1::C
@@ -38,7 +46,7 @@ function evaluate_taylor!(res::AcbFieldElem, tm::TaylorModel3, cache::TMCache)
     CC = parent(res)
     RR = parent(tm.h)
     
-    t_int = CC(RR(0), tm.h) 
+    t_int = _tm_real_interval(CC, tm.h)
     
     Nemo.add!(res, cache.zero_cc, tm.c3)
     
@@ -58,7 +66,7 @@ end
 
 function evaluate_taylor(tm::TaylorModel3)
     CC = parent(tm.rem); RR = parent(tm.h)
-    t_int = CC(RR(0), tm.h) 
+    t_int = _tm_real_interval(CC, tm.h)
     return _evaluate_poly(tm.c0, tm.c1, tm.c2, tm.c3, t_int) + tm.rem
 end
 
@@ -91,7 +99,7 @@ end
 function Base.:*(a::TaylorModel3, b::TaylorModel3)
     CC = parent(a.rem); RR = parent(a.h)
     h = a.h
-    t_int = CC(RR(0), h)
+    t_int = _tm_real_interval(CC, h)
     
     C0 = a.c0*b.c0
     C1 = a.c0*b.c1 + a.c1*b.c0
@@ -121,7 +129,7 @@ function Base.:*(a::TaylorModel3, b::AcbFieldElem)
     CC = parent(a.rem)
     m = get_mid(b)
     dev = b - m
-    t_int = CC(parent(a.h)(0), a.h)
+    t_int = _tm_real_interval(CC, a.h)
     
     pA = _evaluate_poly(a.c0, a.c1, a.c2, a.c3, t_int)
     new_rem = a.rem * b + pA * dev
