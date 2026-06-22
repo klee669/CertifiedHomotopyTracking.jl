@@ -57,7 +57,7 @@ g3 = c^2 - 1
 G = [g1, g2, g3]
 F = [f1, f2, f3]
 
-H = straight_line_homotopy(F, G, [a, b, c]; CCRing=CC)
+H = straight_line_homotopy(F, G, [a, b, c]; CCRing=CC, gamma=CC(0.5,0.5))
 point = [CC(1), CC(-1), CC(-1)]
 
 
@@ -86,7 +86,7 @@ G = [g1, g2, g3, g4, g5]
 F = [f1, f2, f3, f4, f5]
 
 # users can define own homotopy as well
-H = straight_line_homotopy(F, G, [x_1, x_2, x_3, x_4, x_5]; CCRing=CC)
+H = straight_line_homotopy(F, G, [x_1, x_2, x_3, x_4, x_5]; CCRing=CC, gamma=CC(0.5,0.5))
 
 point = [CC(1), CC(1), CC(-1), CC(-1), CC(1)]
 
@@ -130,7 +130,7 @@ cert.failed_segments
 # Example 5: Katsura 9
 # ------------------------------------------------------------------------------
 @variables a, b, c, d, e, f, g, h, i
-PREC_BITS = 256
+PREC_BITS = 53
 CC = AcbField(PREC_BITS)
 
 f1 =a+2*b+2*c+2*d+2*e+2*f+2*g+2*h+2*i-1
