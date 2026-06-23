@@ -27,6 +27,7 @@ export compile_system, AlgebraicVarietySystem, VarietyFrame, VarietyBox,
 # [Internals] -- helpers and utilities
 include("internals/interval_arithmetic.jl")
 include("internals/linear_algebra.jl")
+include("internals/complex_coefficients.jl")
 include("internals/systems.jl")
 include("internals/homotopy_constructor.jl") 
 include("internals/taylor_model.jl") 
@@ -36,7 +37,6 @@ include("internals/moore_box.jl")
 include("internals/predictors.jl")
 include("internals/tracking_modules.jl") 
 include("internals/homogenize.jl") 
-include("internals/complex_coefficients.jl")
 
 # [Core] -- main functionalities
 include("poly_setup.jl")

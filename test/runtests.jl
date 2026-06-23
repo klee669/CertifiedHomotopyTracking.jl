@@ -6,6 +6,22 @@ import HomotopyContinuation
     @test true
 end
 
+@testset "Edge homotopy complex constants" begin
+    @variables x a
+    CC = AcbField(128)
+
+    F = [x + a + (1 + 2im)]
+    compiled = compile_edge_homotopy(F, [x], [a])
+    sys = make_edge_system(compiled, [CC(0)], [CC(1)])
+    start = [CC(-1, -2)]
+
+    @test length(compiled.fixed_const_values) == 1
+    @test length(sys.p_const) == 1
+    @test iszero(evaluate_H(sys, start, CC(0))[1])
+    @test iszero(evaluate_Jac(sys, start, CC(0))[1, 1] - CC(1))
+    @test iszero(evaluate_dt(sys, start, CC(0))[1] - CC(1))
+end
+
 @testset "Taylor model real domain interval" begin
     RR = ArbField(128)
     CC = AcbField(128)

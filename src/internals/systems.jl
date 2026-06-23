@@ -25,6 +25,7 @@ struct CompiledHomotopy
     projective_patch::Bool
     patch_template::Vector{ComplexF64}
     source::Union{Nothing,HomotopySourceData}
+    fixed_const_values::Vector{Any}
 end
 CompiledHomotopy(
     func_H::Function,
@@ -49,6 +50,33 @@ CompiledHomotopy(
     projective_patch,
     patch_template,
     nothing,
+    Any[],
+)
+CompiledHomotopy(
+    func_H::Function,
+    func_Jx::Function,
+    func_dt::Function,
+    chart_func_H::Vector{Function},
+    chart_func_Jx::Vector{Function},
+    chart_func_dt::Vector{Function},
+    projective_coordinates::Bool,
+    n_vars::Int,
+    projective_patch::Bool,
+    patch_template::Vector{ComplexF64},
+    source::Union{Nothing,HomotopySourceData},
+) = CompiledHomotopy(
+    func_H,
+    func_Jx,
+    func_dt,
+    chart_func_H,
+    chart_func_Jx,
+    chart_func_dt,
+    projective_coordinates,
+    n_vars,
+    projective_patch,
+    patch_template,
+    source,
+    Any[],
 )
 CompiledHomotopy(func_H::Function, func_Jx::Function, func_dt::Function, projective_coordinates::Bool) =
     CompiledHomotopy(func_H, func_Jx, func_dt, Function[], Function[], Function[], projective_coordinates, 0, false, ComplexF64[])
@@ -68,6 +96,7 @@ function _compiled_homotopy_with_source(compiled::CompiledHomotopy, source::Homo
         compiled.projective_patch,
         compiled.patch_template,
         source,
+        compiled.fixed_const_values,
     )
 end
 
@@ -97,6 +126,7 @@ mutable struct HCSystem
         source::Union{Nothing,HomotopySourceData}=compiled.source,
     )
         CC = !isempty(p_start) ? parent(p_start[1]) : parent(p_const[1])
+        p_const_full = _complete_const_values(compiled, CC, p_const)
         RR = ArbField(precision(CC))
         if compiled.projective_patch && !isempty(patch_vector)
             throw(ArgumentError("patch_vector is no longer used for projective tracking; coordinate charts are used instead."))
@@ -106,7 +136,7 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
+        new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const_full), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
     end
 
     function HCSystem(
@@ -116,6 +146,7 @@ mutable struct HCSystem
         source::Union{Nothing,HomotopySourceData}=compiled.source,
     )
         RR = ArbField(precision(CC))
+        p_const = _complete_const_values(compiled, CC, AcbFieldElem[])
         if compiled.projective_patch && !isempty(patch_vector)
             throw(ArgumentError("patch_vector is no longer used for projective tracking; coordinate charts are used instead."))
         end
@@ -124,7 +155,7 @@ mutable struct HCSystem
         if !isempty(patch_tuple) && compiled.n_vars != 0 && length(patch_tuple) != compiled.n_vars
             throw(DimensionMismatch("patch_vector length must match the number of compiled variables."))
         end
-        new(compiled, (), (), (), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
+        new(compiled, (), (), Tuple(p_const), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
     end
 end
 
@@ -146,6 +177,25 @@ has_projective_patch(sys::HCSystem) = !isempty(sys.patch_vector)
 uses_projective_charts(sys::HCSystem) = sys.compiled.projective_patch
 
 _convert_acb_vector(CC::AcbField, values) = AcbFieldElem[CC(value) for value in values]
+_convert_fixed_const_values(CC::AcbField, values) =
+    AcbFieldElem[_coefficient_value(CC, value) for value in values]
+
+function _complete_const_values(compiled::CompiledHomotopy, CC::AcbField, p_const::Vector{AcbFieldElem})
+    fixed = compiled.fixed_const_values
+    isempty(fixed) && return p_const
+
+    n_fixed = length(fixed)
+    n_total = compiled.source === nothing ? length(p_const) + n_fixed : length(compiled.source.const_vars)
+    n_manual = n_total - n_fixed
+
+    if length(p_const) == n_total
+        return p_const
+    elseif length(p_const) == n_manual
+        return [p_const; _convert_fixed_const_values(CC, fixed)]
+    else
+        throw(DimensionMismatch("expected $n_manual user const values or $n_total total const values, got $(length(p_const))."))
+    end
+end
 
 function system_with_precision(sys::HCSystem, precision_bits::Integer)
     precision_bits > 0 || throw(ArgumentError("precision_bits must be positive."))

@@ -121,10 +121,15 @@ end
 function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_vector=nothing, patch_rng=nothing, const_vars=Num[])
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective=true uses coordinate charts."))
     patch_rng === nothing || throw(ArgumentError("patch_rng is no longer supported; projective=true uses coordinate charts."))
-    source = HomotopySourceData(:edge, collect(F_eqs), collect(x_vars), collect(p_vars), nothing, collect(const_vars), projective)
+    coeff_vars = Num[]
+    coeff_values = Any[]
+    coeff_map = Dict{Any, Num}()
+    F_param = _parameterize_complex_coefficients!(collect(F_eqs), x_vars, coeff_vars, coeff_values, coeff_map)
+    all_const_vars = Num[collect(const_vars); coeff_vars]
+    source = HomotopySourceData(:edge, collect(F_param), collect(x_vars), collect(p_vars), nothing, all_const_vars, projective)
     @variables t_var
     n_params = length(p_vars)
-    n_consts = length(const_vars)
+    n_consts = length(all_const_vars)
     
     @variables p_starts[1:n_params] p_ends[1:n_params]
     @variables p_consts[1:n_consts]
@@ -132,9 +137,9 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_ve
     
     subs_dict = Dict(p_vars[i] => path_exprs[i] for i in 1:n_params)
     for i in 1:n_consts
-        subs_dict[const_vars[i]] = p_consts[i]
+        subs_dict[all_const_vars[i]] = p_consts[i]
     end
-    H_sub = [Symbolics.substitute(eq, subs_dict) for eq in F_eqs]
+    H_sub = [Symbolics.substitute(eq, subs_dict) for eq in F_param]
     
     target_vars = x_vars
     use_projective_coords = projective
@@ -151,7 +156,7 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_ve
     if projective
         chart_H, chart_Jx, chart_dt = _compile_projective_charts(H_sub, target_vars, t_var, [p_starts..., p_ends..., p_consts...])
         println("Compilation Done.")
-        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[], source)
+        return CompiledHomotopy(chart_H[1], chart_Jx[1], chart_dt[1], chart_H, chart_Jx, chart_dt, true, length(target_vars), true, ComplexF64[], source, coeff_values)
     end
 
     Jx_sub = Symbolics.jacobian(H_sub, target_vars)
@@ -162,5 +167,5 @@ function compile_edge_homotopy(F_eqs, x_vars, p_vars; projective=false, patch_ve
     func_dt_raw = build_function(dt_sub, compile_args...; expression=Val{false})[1]
 
     println("Compilation Done.")
-    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[], source)
+    return CompiledHomotopy(func_H_raw, func_Jx_raw, func_dt_raw, Function[], Function[], Function[], use_projective_coords, length(target_vars), false, ComplexF64[], source, coeff_values)
 end
