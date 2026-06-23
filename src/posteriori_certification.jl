@@ -183,6 +183,24 @@ function _prepare_certified_trace_nodes(
     return nodes
 end
 
+function _node_refinement_failure_result(points, err, method, diagnostics_data)
+    return (
+        success = false,
+        status = :node_refinement_failed,
+        boxes = NamedTuple[],
+        segments = NamedTuple[],
+        failed_segments = [(status = :node_refinement_failed, error = err)],
+        total_boxes = 0,
+        original_segments = max(length(points) - 1, 0),
+        max_depth = 0,
+        max_krawczyk_norm = Inf,
+        method = method,
+        boxes_by_parent = Dict{Any,Int}(),
+        boxes_by_depth = Dict{Any,Int}(),
+        diagnostics = _freeze_trace_cert_diagnostics(diagnostics_data),
+    )
+end
+
 function _segment_radius_candidates(base_radius, growth, max_radius)
     candidates = Float64[]
     for factor in growth
@@ -546,12 +564,29 @@ function _local_parameter_candidates(sys::HCSystem, node0, node1; min_local_para
     return candidates
 end
 
-function _local_parameter_interval_contains(interval, value; slack = 1e-12)
-    a = real(interval)
+function _local_parameter_real_bounds(value)
+    a = real(value)
     mid = Float64(Nemo.midpoint(a))
     rad = Float64(Nemo.radius(a))
-    v = _local_parameter_mid_float(real(value))
-    return abs(v - mid) <= rad * (1 + slack) + slack
+    return mid - rad, mid + rad
+end
+
+function _local_parameter_interval_hull(sys::HCSystem, a, b)
+    a_low, a_high = _local_parameter_real_bounds(a)
+    b_low, b_high = _local_parameter_real_bounds(b)
+    low = min(a_low, b_low)
+    high = max(a_high, b_high)
+    mid = (low + high) / 2
+    rad = (high - low) / 2
+    return sys.CC(sys.RR("$mid +/- $rad"), sys.RR(0))
+end
+
+function _local_parameter_interval_contains(interval, value; slack = 1e-12)
+    interval_low, interval_high = _local_parameter_real_bounds(interval)
+    value_low, value_high = _local_parameter_real_bounds(value)
+    scale = max(1.0, abs(interval_low), abs(interval_high), abs(value_low), abs(value_high))
+    tol = slack * scale
+    return interval_low - tol <= value_low && value_high <= interval_high + tol
 end
 
 function _local_parameter_endpoint_in_box(U_box, local_parameter_interval, u_endpoint, local_parameter_endpoint)
@@ -566,14 +601,32 @@ function _local_parameter_orientation(c0, c1; tol = 1e-14)
     return (orientation = orientation, delta = delta, valid = orientation != :flat)
 end
 
-function _local_parameter_endpoint_box_radii(sys::HCSystem, u0, u1, inflation)
-    return [abs(_local_parameter_mid_float(real(u1[i] - u0[i]))) / 2 + Float64(inflation) for i in eachindex(u0)]
+function _local_parameter_radius_to_cover(center, value)
+    center_mid = _local_parameter_mid_float(real(center))
+    value_low, value_high = _local_parameter_real_bounds(value)
+    return max(abs(value_low - center_mid), abs(value_high - center_mid))
 end
 
-function _local_parameter_endpoint_box_inflation_candidates(base_radius, growth, max_radius, u0, u1, Y, rho)
+function _local_parameter_endpoint_box_radii(sys::HCSystem, u_mid, u0, u1, inflation)
+    return [
+        max(
+            _local_parameter_radius_to_cover(u_mid[i], u0[i]),
+            _local_parameter_radius_to_cover(u_mid[i], u1[i]),
+        ) + Float64(inflation)
+        for i in eachindex(u_mid)
+    ]
+end
+
+function _local_parameter_endpoint_box_inflation_candidates(base_radius, growth, max_radius, u_mid, u0, u1, Y, rho)
     candidates = _segment_radius_candidates(base_radius, growth, max_radius)
 
-    half_widths = [abs(_local_parameter_mid_float(real(u1[i] - u0[i]))) / 2 for i in eachindex(u0)]
+    half_widths = [
+        max(
+            _local_parameter_radius_to_cover(u_mid[i], u0[i]),
+            _local_parameter_radius_to_cover(u_mid[i], u1[i]),
+        )
+        for i in eachindex(u_mid)
+    ]
     min_half_width = minimum(half_widths)
     rho_float = Float64(rho)
     residual_bound = Float64(Y)
@@ -631,6 +684,17 @@ function _local_parameter_stored_row(row; parent_index, depth, method = missing,
     )
 end
 
+_trace_point_radius(point) = 0.0
+_trace_point_radius(point::CertifiedTraceNode) = point.radius
+_trace_point_radius(point::NamedTuple) = haskey(point, :radius) ? Float64(point.radius) : 0.0
+
+function _endpoint_enclosure_x(sys::HCSystem, point)
+    radius = _trace_point_radius(point)
+    radius <= 0 && return point.x
+    unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
+    return [xi + unit * sys.CC(radius) for xi in point.x]
+end
+
 function _validate_local_parameter_endpoint_box_segment_once(
     sys::HCSystem,
     p0,
@@ -645,13 +709,19 @@ function _validate_local_parameter_endpoint_box_segment_once(
     n = length(p0.x)
     t0 = sys.CC(p0.t)
     t1 = sys.CC(p1.t)
+    x0_enclosure = _endpoint_enclosure_x(sys, p0)
+    x1_enclosure = _endpoint_enclosure_x(sys, p1)
     c0 = _local_parameter_value(sys, p0.x, t0, local_parameter.index)
     c1 = _local_parameter_value(sys, p1.x, t1, local_parameter.index)
     u0 = _local_parameter_unknown_endpoint(sys, p0.x, t0, local_parameter.index)
     u1 = _local_parameter_unknown_endpoint(sys, p1.x, t1, local_parameter.index)
+    c0_enclosure = _local_parameter_value(sys, x0_enclosure, t0, local_parameter.index)
+    c1_enclosure = _local_parameter_value(sys, x1_enclosure, t1, local_parameter.index)
+    u0_enclosure = _local_parameter_unknown_endpoint(sys, x0_enclosure, t0, local_parameter.index)
+    u1_enclosure = _local_parameter_unknown_endpoint(sys, x1_enclosure, t1, local_parameter.index)
     u_mid = [(u0[i] + u1[i]) / sys.CC(2) for i in eachindex(u0)]
     c_mid = (c0 + c1) / sys.CC(2)
-    local_parameter_interval = _local_parameter_interval(sys, c0, c1)
+    local_parameter_interval = _local_parameter_interval_hull(sys, c0_enclosure, c1_enclosure)
     orientation = _local_parameter_orientation(c0, c1)
 
     A = inv_acb(_local_parameter_jacobian(sys, u_mid, local_parameter.index, c_mid, n))
@@ -669,9 +739,9 @@ function _validate_local_parameter_endpoint_box_segment_once(
     AH = A * F_val
     Y = norm_inf(AH)
     best = nothing
-    for inflation in _local_parameter_endpoint_box_inflation_candidates(base_radius, radius_growth, max_radius, u0, u1, Y, rho)
+    for inflation in _local_parameter_endpoint_box_inflation_candidates(base_radius, radius_growth, max_radius, u_mid, u0_enclosure, u1_enclosure, Y, rho)
         _diag_basic(diagnostics) && (diagnostics.krawczyk_validation_calls += 1)
-        u_radii = _local_parameter_endpoint_box_radii(sys, u0, u1, inflation)
+        u_radii = _local_parameter_endpoint_box_radii(sys, u_mid, u0_enclosure, u1_enclosure, inflation)
         U_expanded = [u_mid[i] + B[i] * sys.CC(u_radii[i]) for i in eachindex(u_mid)]
         J = _local_parameter_jacobian(sys, U_expanded, local_parameter.index, local_parameter_interval, n)
         linear_defect = I - A * J
@@ -683,8 +753,8 @@ function _validate_local_parameter_endpoint_box_segment_once(
             end
             K[i] = (-AH[i] + row_term) / sys.CC(u_radii[i])
         end
-        start_enclosure = _local_parameter_endpoint_in_box(U_expanded, local_parameter_interval, u0, c0)
-        end_enclosure = _local_parameter_endpoint_in_box(U_expanded, local_parameter_interval, u1, c1)
+        start_enclosure = _local_parameter_endpoint_in_box(U_expanded, local_parameter_interval, u0_enclosure, c0_enclosure)
+        end_enclosure = _local_parameter_endpoint_in_box(U_expanded, local_parameter_interval, u1_enclosure, c1_enclosure)
         endpoint_enclosure = (
             start = start_enclosure,
             finish = end_enclosure,
@@ -696,7 +766,10 @@ function _validate_local_parameter_endpoint_box_segment_once(
         _record_yz_max!(diagnostics, Y, Z, Y / min_radius)
         row = (
             success = k_norm < rho && endpoint_enclosure.both && orientation.valid,
-            status = k_norm < rho ? :success : :krawczyk_failed,
+            status = !(k_norm < rho) ? :krawczyk_failed :
+                !endpoint_enclosure.both ? :endpoint_enclosure_failed :
+                !orientation.valid ? :local_parameter_orientation_failed :
+                :success,
             local_parameter = local_parameter,
             krawczyk_norm = k_norm,
             radius = Float64(inflation),
@@ -733,16 +806,16 @@ function _local_parameter_midpoint_point(sys::HCSystem, p0, p1; midpoint_policy,
     t_mid = (p0.t + p1.t) / 2
     x_guess = (p0.x .+ p1.x) ./ sys.CC(2)
     if midpoint_policy in (:krawczyk_polish, :krawczyk, :moore)
-        A = compute_preconditioner(sys, x_guess, sys.CC(t_mid))
-        x_refined, _, _, success = refine_moore_box(
+        midpoint = _certify_trace_node(
             sys,
-            x_guess,
-            sys.CC(t_mid),
-            node_refinement_radius,
-            A;
+            (t = t_mid, x = x_guess);
+            node_refinement_radius = node_refinement_radius,
             tau = tau,
+            diagnostics = nothing,
+            refinement_counter = :midpoint_refinements,
         )
-        success && return (t = t_mid, x = x_refined)
+        midpoint !== nothing && return midpoint
+        return nothing
     elseif midpoint_policy != :newton && midpoint_policy != :average
         throw(ArgumentError("unsupported midpoint_policy $(midpoint_policy)"))
     end
@@ -870,6 +943,10 @@ function _certify_local_parameter_endpoint_box_segment!(
         node_refinement_radius = node_refinement_radius,
         tau = tau,
     )
+    if midpoint === nothing
+        push!(failures, (parent_index = parent_index, depth = depth, status = :split_refinement_failed))
+        return false
+    end
     left = _certify_local_parameter_endpoint_box_segment!(
         boxes,
         failures,
@@ -1339,17 +1416,34 @@ function certify_hc_trace_adaptive_local_parameter(
     store_boxes = _local_parameter_store_mode(store_boxes, :store_boxes)
     store_failures = _local_parameter_store_mode(store_failures, :store_failures)
     if local_parameter_method in (:endpoint_box, :box)
+        nodes = try
+            _prepare_certified_trace_nodes(
+                sys,
+                points;
+                node_refinement_radius = node_refinement_radius,
+                tau = tau,
+                diagnostics = active_diagnostics,
+            )
+        catch err
+            err isa InterruptException && rethrow(err)
+            return _node_refinement_failure_result(
+                points,
+                err,
+                :adaptive_local_parameter_endpoint_box,
+                diagnostics_data,
+            )
+        end
         boxes = NamedTuple[]
         failures = NamedTuple[]
-        total = length(points) - 1
+        total = length(nodes) - 1
         for i in 1:total
             progress_state = show_progress ? _local_parameter_progress_state(i, total) : nothing
             ok = _certify_local_parameter_endpoint_box_segment!(
                 boxes,
                 failures,
                 sys,
-                points[i],
-                points[i+1];
+                nodes[i],
+                nodes[i+1];
                 parent_index = i,
                 depth = 0,
                 max_depth = max_depth,
@@ -1397,13 +1491,23 @@ function certify_hc_trace_adaptive_local_parameter(
         throw(ArgumentError("unsupported local_parameter_method $(local_parameter_method)"))
     end
 
-    nodes = _prepare_certified_trace_nodes(
-        sys,
-        points;
-        node_refinement_radius = node_refinement_radius,
-        tau = tau,
-        diagnostics = active_diagnostics,
-    )
+    nodes = try
+        _prepare_certified_trace_nodes(
+            sys,
+            points;
+            node_refinement_radius = node_refinement_radius,
+            tau = tau,
+            diagnostics = active_diagnostics,
+        )
+    catch err
+        err isa InterruptException && rethrow(err)
+        return _node_refinement_failure_result(
+            points,
+            err,
+            :adaptive_local_parameter_hermite,
+            diagnostics_data,
+        )
+    end
 
     boxes = NamedTuple[]
     failures = NamedTuple[]

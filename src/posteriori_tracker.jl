@@ -367,10 +367,10 @@ function _posteriori_affine_to_projective_chart(x_affine, chart_idx::Int)
 end
 
 function _posteriori_projective_chart_score(trace, chart_idx::Int)
-    best = 0.0
+    best = Inf
     for point in trace
         X = ComplexF64[1.0 + 0im; point.x]
-        best = max(best, abs(X[chart_idx]))
+        best = min(best, abs(X[chart_idx]))
     end
     return best
 end
@@ -456,23 +456,43 @@ function _certify_path_a_posteriori_projective(
         projective_trace = _posteriori_trace_to_projective_chart(trace_out.trace, chart_idx)
 
         for depth_value in max_depth_schedule
-            cert = certify_hc_trace_adaptive_local_parameter(
-                sys_projective,
-                projective_trace;
-                time_map = time_map,
-                max_depth = depth_value,
-                local_parameter_method = local_parameter_method,
-                midpoint_policy = :krawczyk_polish,
-                node_refinement_radius = DEFAULT_POSTERIORI_NODE_REFINEMENT_RADIUS,
-                tau = DEFAULT_POSTERIORI_REFINEMENT_TAU,
-                radius_growth = DEFAULT_POSTERIORI_RADIUS_GROWTH,
-                max_radius = DEFAULT_POSTERIORI_MAX_RADIUS,
-                local_parameter_variables = local_parameter_variables,
-                store_boxes = store_boxes,
-                store_failures = :summary,
-                diagnostics = diagnostics,
-                show_progress = show_progress,
-            )
+            cert = try
+                certify_hc_trace_adaptive_local_parameter(
+                    sys_projective,
+                    projective_trace;
+                    time_map = time_map,
+                    max_depth = depth_value,
+                    local_parameter_method = local_parameter_method,
+                    midpoint_policy = :krawczyk_polish,
+                    node_refinement_radius = DEFAULT_POSTERIORI_NODE_REFINEMENT_RADIUS,
+                    tau = DEFAULT_POSTERIORI_REFINEMENT_TAU,
+                    radius_growth = DEFAULT_POSTERIORI_RADIUS_GROWTH,
+                    max_radius = DEFAULT_POSTERIORI_MAX_RADIUS,
+                    local_parameter_variables = local_parameter_variables,
+                    store_boxes = store_boxes,
+                    store_failures = :summary,
+                    diagnostics = diagnostics,
+                    show_progress = show_progress,
+                )
+            catch err
+                err isa InterruptException && rethrow(err)
+                (
+                    success = false,
+                    status = :certification_error,
+                    error = err,
+                    segments = NamedTuple[],
+                    boxes = NamedTuple[],
+                    failed_segments = NamedTuple[],
+                    total_boxes = 0,
+                    original_segments = max(length(projective_trace) - 1, 0),
+                    max_depth = depth_value,
+                    max_krawczyk_norm = Inf,
+                    method = :adaptive_local_parameter_projective,
+                    boxes_by_parent = Dict{Any,Int}(),
+                    boxes_by_depth = Dict{Any,Int}(),
+                    diagnostics = missing,
+                )
+            end
             last_cert = cert
             push!(
                 attempts,
