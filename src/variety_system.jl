@@ -283,6 +283,88 @@ function _neighbor_candidates(box::VarietyBox; facet_anchor_scale)
     return candidates
 end
 
+function _variety_seed_items(variety::AlgebraicVarietySystem, start)
+    starts = (!isempty(start) && first(start) isa AbstractVector) ? start : (start,)
+    return [
+        (anchor = _as_acb_vector(variety.system.CC, s), direction_index = nothing, direction_sign = 1)
+        for s in starts
+    ]
+end
+
+function _process_variety_candidate(
+    variety::AlgebraicVarietySystem,
+    item;
+    tangent_radius,
+    normal_radius,
+    normal_rho,
+    tangent_rho,
+    rank_tol,
+    min_radius,
+    min_tangent_radius,
+    max_radius,
+    max_tangent_radius,
+    tangent_growth_factor,
+    radius_shrink_factor,
+    max_refinement_iter,
+    newton_tol,
+    max_newton_steps,
+    facet_anchor_scale,
+)
+    normal_box = refine_moore_box(
+        variety,
+        item.anchor,
+        normal_radius;
+        rho=normal_rho,
+        rank_tol=rank_tol,
+        min_radius=min_radius,
+        max_radius=max_radius,
+        growth_factor=2.0,
+        radius_shrink_factor=radius_shrink_factor,
+        max_iter=max_refinement_iter,
+        newton_tol=newton_tol,
+        max_newton_steps=max_newton_steps,
+    )
+
+    normal_box.success || return (status = :rejected, box = nothing, neighbors = ())
+
+    anchor = normal_box.center
+    frame = normal_box.frame
+    rn = normal_box.normal_radius
+    h = Float64(tangent_radius)
+    tangent_offsets, tangent_radii = _step_tangent_data(frame, h, item.direction_index, item.direction_sign)
+    tangent_passed, tangent_norm = krawczyk_test(variety, anchor, frame, tangent_offsets, tangent_radii, rn; rho=tangent_rho)
+    while !tangent_passed && h > min_tangent_radius
+        h *= radius_shrink_factor
+        tangent_offsets, tangent_radii = _step_tangent_data(frame, h, item.direction_index, item.direction_sign)
+        tangent_passed, tangent_norm = krawczyk_test(variety, anchor, frame, tangent_offsets, tangent_radii, rn; rho=tangent_rho)
+    end
+    tangent_passed || return (status = :rejected, box = nothing, neighbors = ())
+
+    while tangent_growth_factor * h <= max_tangent_radius
+        h_next = tangent_growth_factor * h
+        offsets_next, radii_next = _step_tangent_data(frame, h_next, item.direction_index, item.direction_sign)
+        grown, grown_norm = krawczyk_test(variety, anchor, frame, offsets_next, radii_next, rn; rho=tangent_rho)
+        grown || break
+        h = h_next
+        tangent_offsets, tangent_radii = offsets_next, radii_next
+        tangent_norm = grown_norm
+    end
+
+    box = VarietyBox(
+        _tangent_midpoint(anchor, frame, tangent_offsets),
+        frame,
+        isempty(tangent_radii) ? 0.0 : maximum(tangent_radii),
+        rn,
+        tangent_norm,
+        true,
+    )
+    return (
+        status = :accepted,
+        box = box,
+        neighbors = _neighbor_candidates(box; facet_anchor_scale=facet_anchor_scale),
+    )
+end
+
 function certified_variety_approximation(
     variety::AlgebraicVarietySystem,
     start;
@@ -303,80 +385,86 @@ function certified_variety_approximation(
     max_newton_steps=10,
     facet_anchor_scale=1.0,
     overlap_factor=0.75,
+    threading=false,
+    ntasks=Base.Threads.nthreads(),
 )
     max_boxes >= 0 || throw(ArgumentError("max_boxes must be nonnegative."))
+    thread_count = _thread_count(threading, ntasks)
     boxes = VarietyBox[]
     queue = NamedTuple{(:anchor, :direction_index, :direction_sign), Tuple{Vector{AcbFieldElem}, Union{Nothing, Int}, Int}}[]
-    push!(queue, (anchor=_as_acb_vector(variety.system.CC, start), direction_index=nothing, direction_sign=1))
+    append!(queue, _variety_seed_items(variety, start))
     attempted = 0
     rejected = 0
     skipped_overlap = 0
 
     while !isempty(queue) && length(boxes) < max_boxes
-        item = popfirst!(queue)
-        attempted += 1
-
-        normal_box = refine_moore_box(
-            variety,
-            item.anchor,
-            normal_radius;
-            rho=normal_rho,
-            rank_tol=rank_tol,
-            min_radius=min_radius,
-            max_radius=max_radius,
-            growth_factor=2.0,
-            radius_shrink_factor=radius_shrink_factor,
-            max_iter=max_refinement_iter,
-            newton_tol=newton_tol,
-            max_newton_steps=max_newton_steps,
-        )
-
-        if !normal_box.success
-            rejected += 1
-            continue
+        batch_size = thread_count > 1 ? min(length(queue), max(thread_count, max_boxes - length(boxes))) : 1
+        batch = [popfirst!(queue) for _ in 1:batch_size]
+        attempted += length(batch)
+        results = Vector{Any}(undef, length(batch))
+        if thread_count > 1 && length(batch) > 1
+            chunks = _thread_chunks(batch, thread_count)
+            Base.Threads.@sync for chunk in chunks
+                Base.Threads.@spawn begin
+                    for pos in chunk
+                        results[pos] = _process_variety_candidate(
+                            variety,
+                            batch[pos];
+                            tangent_radius=tangent_radius,
+                            normal_radius=normal_radius,
+                            normal_rho=normal_rho,
+                            tangent_rho=tangent_rho,
+                            rank_tol=rank_tol,
+                            min_radius=min_radius,
+                            min_tangent_radius=min_tangent_radius,
+                            max_radius=max_radius,
+                            max_tangent_radius=max_tangent_radius,
+                            tangent_growth_factor=tangent_growth_factor,
+                            radius_shrink_factor=radius_shrink_factor,
+                            max_refinement_iter=max_refinement_iter,
+                            newton_tol=newton_tol,
+                            max_newton_steps=max_newton_steps,
+                            facet_anchor_scale=facet_anchor_scale,
+                        )
+                    end
+                end
+            end
+        else
+            results[1] = _process_variety_candidate(
+                variety,
+                batch[1];
+                tangent_radius=tangent_radius,
+                normal_radius=normal_radius,
+                normal_rho=normal_rho,
+                tangent_rho=tangent_rho,
+                rank_tol=rank_tol,
+                min_radius=min_radius,
+                min_tangent_radius=min_tangent_radius,
+                max_radius=max_radius,
+                max_tangent_radius=max_tangent_radius,
+                tangent_growth_factor=tangent_growth_factor,
+                radius_shrink_factor=radius_shrink_factor,
+                max_refinement_iter=max_refinement_iter,
+                newton_tol=newton_tol,
+                max_newton_steps=max_newton_steps,
+                facet_anchor_scale=facet_anchor_scale,
+            )
         end
 
-        anchor = normal_box.center
-        frame = normal_box.frame
-        rn = normal_box.normal_radius
-        h = Float64(tangent_radius)
-        tangent_offsets, tangent_radii = _step_tangent_data(frame, h, item.direction_index, item.direction_sign)
-        tangent_passed, tangent_norm = krawczyk_test(variety, anchor, frame, tangent_offsets, tangent_radii, rn; rho=tangent_rho)
-        while !tangent_passed && h > min_tangent_radius
-            h *= radius_shrink_factor
-            tangent_offsets, tangent_radii = _step_tangent_data(frame, h, item.direction_index, item.direction_sign)
-            tangent_passed, tangent_norm = krawczyk_test(variety, anchor, frame, tangent_offsets, tangent_radii, rn; rho=tangent_rho)
-        end
-        if !tangent_passed
-            rejected += 1
-            continue
-        end
-        while tangent_growth_factor * h <= max_tangent_radius
-            h_next = tangent_growth_factor * h
-            offsets_next, radii_next = _step_tangent_data(frame, h_next, item.direction_index, item.direction_sign)
-            grown, grown_norm = krawczyk_test(variety, anchor, frame, offsets_next, radii_next, rn; rho=tangent_rho)
-            grown || break
-            h = h_next
-            tangent_offsets, tangent_radii = offsets_next, radii_next
-            tangent_norm = grown_norm
-        end
+        for result in results
+            length(boxes) >= max_boxes && break
+            if result.status !== :accepted
+                rejected += 1
+                continue
+            end
+            box = result.box
+            if _is_near_existing_box(box.center, boxes; overlap_factor=overlap_factor)
+                skipped_overlap += 1
+                continue
+            end
 
-        box = VarietyBox(
-            _tangent_midpoint(anchor, frame, tangent_offsets),
-            frame,
-            isempty(tangent_radii) ? 0.0 : maximum(tangent_radii),
-            rn,
-            tangent_norm,
-            true,
-        )
-        if _is_near_existing_box(box.center, boxes; overlap_factor=overlap_factor)
-            skipped_overlap += 1
-            continue
-        end
-
-        push!(boxes, box)
-        for next_candidate in _neighbor_candidates(box; facet_anchor_scale=facet_anchor_scale)
-            push!(queue, next_candidate)
+            push!(boxes, box)
+            append!(queue, result.neighbors)
         end
     end
 

@@ -212,7 +212,10 @@ function solve_monodromy(
     predictor::Bool = true,
     show_progress::Bool = true,
     return_result::Bool = true,
+    threading::Bool = false,
+    ntasks::Integer = Base.Threads.nthreads(),
 )
+    _thread_count(threading, ntasks)
     # 1. Initialize Edges (Connect all vertices)
     edges = Edge[]
     for i in 1:length(vertices)-1
@@ -394,6 +397,8 @@ function track_edge!(
     posteriori_options::NamedTuple=(;),
     failed_paths=nothing,
     diagnostics=nothing,
+    threading::Bool=false,
+    ntasks::Integer=Base.Threads.nthreads(),
 )
     if from1to2
         source_v, target_v = e.node1, e.node2
@@ -437,7 +442,35 @@ function track_edge!(
     sys_edge = make_edge_system(compiled_sys, source_v.base_point, target_v.base_point)
     
     count_success = 0; count_new = 0; count_collision = 0
-    
+
+    if _threading_enabled(threading, ntasks) && length(untracked_indices) > 1
+        count_success, count_new, count_collision = _track_edge_paths_threaded!(
+            compiled_sys,
+            sys_edge,
+            source_sols,
+            target_sols,
+            c_forward,
+            c_backward,
+            untracked_indices;
+            edge_idx = edge_idx,
+            from1to2 = from1to2,
+            id_src = id_src,
+            id_dest = id_dest,
+            show_progress = show_progress,
+            root_match = root_match,
+            track_options = track_options,
+            posteriori = posteriori,
+            posteriori_options = posteriori_options,
+            failed_paths = failed_paths,
+            diagnostics = diagnostics,
+            ntasks = _thread_count(threading, ntasks),
+        )
+        sort!(c_forward)
+        sort!(c_backward)
+        println(" Done. (Ok: $count_success, New: $count_new, Collision: $count_collision)")
+        return
+    end
+
     for src_idx in untracked_indices
         start_point = source_sols[src_idx]
         
@@ -503,6 +536,106 @@ function track_edge!(
     println(" Done. (Ok: $count_success, New: $count_new, Collision: $count_collision)")
 end
 
+function _track_edge_paths_threaded!(
+    compiled_sys::CompiledHomotopy,
+    sys_edge::HCSystem,
+    source_sols,
+    target_sols,
+    c_forward,
+    c_backward,
+    untracked_indices;
+    edge_idx,
+    from1to2,
+    id_src,
+    id_dest,
+    show_progress,
+    root_match,
+    track_options,
+    posteriori,
+    posteriori_options,
+    failed_paths,
+    diagnostics,
+    ntasks,
+)
+    results = Vector{Any}(undef, length(untracked_indices))
+    chunks = _thread_chunks(untracked_indices, ntasks)
+    Base.Threads.@sync for chunk in chunks
+        Base.Threads.@spawn begin
+            local_sys_edge = make_edge_system(
+                compiled_sys,
+                AcbFieldElem[sys_edge.p_start...],
+                AcbFieldElem[sys_edge.p_end...],
+                AcbFieldElem[sys_edge.p_const...];
+                patch_vector = AcbFieldElem[sys_edge.patch_vector...],
+                source = sys_edge.source,
+            )
+            for pos in chunk
+                src_idx = untracked_indices[pos]
+                y_end, success, cert = _track_compiled_edge_path(
+                    local_sys_edge,
+                    source_sols[src_idx];
+                    posteriori = posteriori,
+                    posteriori_options = posteriori_options,
+                    show_progress = show_progress,
+                    track_options = track_options,
+                )
+                results[pos] = (src_idx = src_idx, y_end = y_end, success = success, cert = cert)
+            end
+        end
+    end
+
+    count_success = 0
+    count_new = 0
+    count_collision = 0
+    for result in results
+        diagnostics !== nothing && (diagnostics.total_attempted_paths[] += 1)
+        src_idx = result.src_idx
+        if result.success
+            diagnostics !== nothing && (diagnostics.total_successful_paths[] += 1)
+            dest_idx = _search_solution(sys_edge, result.y_end, target_sols; root_match=root_match)
+            if dest_idx === nothing
+                push!(target_sols, result.y_end)
+                dest_idx = length(target_sols)
+                push!(c_forward, (src_idx, dest_idx))
+                push!(c_backward, (dest_idx, src_idx))
+                printstyled("+", color=:green, bold=true)
+                count_new += 1
+                count_success += 1
+            else
+                already_mapped = any(p -> p[2] == dest_idx, c_forward)
+                if !already_mapped
+                    push!(c_forward, (src_idx, dest_idx))
+                    push!(c_backward, (dest_idx, src_idx))
+                    printstyled(".", color=:cyan)
+                    count_success += 1
+                else
+                    printstyled("c", color=:yellow, bold=true)
+                    count_collision += 1
+                end
+            end
+        else
+            diagnostics !== nothing && (diagnostics.total_failed_paths[] += 1)
+            failed_paths !== nothing && push!(failed_paths, (edge_idx, from1to2, src_idx))
+            _record_monodromy_failure!(
+                diagnostics,
+                merge(
+                    (
+                        edge_index = edge_idx,
+                        direction = from1to2 ? :forward : :backward,
+                        source_vertex = id_src,
+                        target_vertex = id_dest,
+                        source_index = src_idx,
+                        reason = posteriori ? :posteriori_failed : :tracking_failed,
+                    ),
+                    _posteriori_failure_summary(result.cert),
+                ),
+            )
+            printstyled("x", color=:red, bold=true)
+        end
+    end
+    return count_success, count_new, count_collision
+end
+
 
 
 """
@@ -529,10 +662,13 @@ function solve_monodromy(
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
     return_result::Bool=true,
+    threading::Bool=false,
+    ntasks::Integer=Base.Threads.nthreads(),
 )
     if projective && !compiled_sys.projective_patch
         throw(ArgumentError("projective=true requires compiled_sys to be built with projective=true."))
     end
+    _thread_count(threading, ntasks)
     effective_track_options = merge((; projective=projective), track_options)
     iter = 0
     iter_stagnant = 0
@@ -592,6 +728,8 @@ function solve_monodromy(
                     posteriori_options = posteriori_options,
                     failed_paths = failed_paths,
                     diagnostics = diagnostics_state,
+                    threading = threading,
+                    ntasks = ntasks,
                 )
                 track_edge!(
                     compiled_sys,
@@ -607,6 +745,8 @@ function solve_monodromy(
                     posteriori_options = posteriori_options,
                     failed_paths = failed_paths,
                     diagnostics = diagnostics_state,
+                    threading = threading,
+                    ntasks = ntasks,
                 )
 
                 counts = map(x -> length(x.correspondence12), edges)
@@ -660,6 +800,8 @@ function solve_monodromy(
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
     return_result::Bool=true,
+    threading::Bool=false,
+    ntasks::Integer=Base.Threads.nthreads(),
 )
     println("Building a complete graph for the given vertices...")
     edges = Edge[]
@@ -685,6 +827,8 @@ function solve_monodromy(
         posteriori = posteriori,
         posteriori_options = posteriori_options,
         return_result = return_result,
+        threading = threading,
+        ntasks = ntasks,
     )
 end
 

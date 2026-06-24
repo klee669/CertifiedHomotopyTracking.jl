@@ -80,6 +80,26 @@ function _freeze_trace_cert_diagnostics(diagnostics)
     )
 end
 
+function _merge_trace_cert_diagnostics!(dest::TraceCertDiagnostics, src::TraceCertDiagnostics)
+    dest.node_refinements += src.node_refinements
+    dest.midpoint_refinements += src.midpoint_refinements
+    dest.segment_attempts += src.segment_attempts
+    dest.krawczyk_validation_calls += src.krawczyk_validation_calls
+    dest.velocity_computations += src.velocity_computations
+    dest.preconditioner_computations += src.preconditioner_computations
+    for (name, count) in src.local_parameter_choices
+        dest.local_parameter_choices[name] = get(dest.local_parameter_choices, name, 0) + count
+    end
+    dest.time_in_refinement += src.time_in_refinement
+    dest.time_in_validation += src.time_in_validation
+    dest.time_in_local_parameter_search += src.time_in_local_parameter_search
+    dest.max_Y = max(dest.max_Y, src.max_Y)
+    dest.max_Z = max(dest.max_Z, src.max_Z)
+    dest.max_Y_over_r = max(dest.max_Y_over_r, src.max_Y_over_r)
+    return dest
+end
+_merge_trace_cert_diagnostics!(dest::TraceCertDiagnostics, ::Nothing) = dest
+
 function _record_local_parameter_choice!(diagnostics::TraceCertDiagnostics, local_parameter)
     _diag_basic(diagnostics) || return nothing
     name = local_parameter.name
@@ -805,7 +825,7 @@ end
 function _local_parameter_midpoint_point(sys::HCSystem, p0, p1; midpoint_policy, node_refinement_radius, tau)
     t_mid = (p0.t + p1.t) / 2
     x_guess = (p0.x .+ p1.x) ./ sys.CC(2)
-    if midpoint_policy in (:krawczyk_polish, :krawczyk, :moore)
+    if midpoint_policy === :krawczyk
         midpoint = _certify_trace_node(
             sys,
             (t = t_mid, x = x_guess);
@@ -816,8 +836,8 @@ function _local_parameter_midpoint_point(sys::HCSystem, p0, p1; midpoint_policy,
         )
         midpoint !== nothing && return midpoint
         return nothing
-    elseif midpoint_policy != :newton && midpoint_policy != :average
-        throw(ArgumentError("unsupported midpoint_policy $(midpoint_policy)"))
+    elseif midpoint_policy !== :newton
+        throw(ArgumentError("midpoint_policy must be :krawczyk or :newton."))
     end
     return (t = t_mid, x = x_guess)
 end
@@ -1379,6 +1399,117 @@ function _certify_local_parameter_segment!(
     return left && right
 end
 
+function _certify_endpoint_box_segment_job(
+    sys::HCSystem,
+    node0,
+    node1;
+    parent_index,
+    max_depth,
+    rho,
+    tau,
+    node_refinement_radius,
+    tube_radius_floor,
+    radius_growth,
+    max_radius,
+    local_parameter_variables,
+    midpoint_policy,
+    store_boxes,
+    store_failures,
+    diagnostics_mode,
+    fail_fast,
+)
+    boxes = NamedTuple[]
+    failures = NamedTuple[]
+    diagnostics = diagnostics_mode === :off ? nothing : _trace_cert_diagnostics(diagnostics_mode)
+    ok = _certify_local_parameter_endpoint_box_segment!(
+        boxes,
+        failures,
+        sys,
+        node0,
+        node1;
+        parent_index = parent_index,
+        depth = 0,
+        max_depth = max_depth,
+        rho = rho,
+        tau = tau,
+        node_refinement_radius = node_refinement_radius,
+        tube_radius_floor = tube_radius_floor,
+        radius_growth = radius_growth,
+        max_radius = max_radius,
+        local_parameter_variables = local_parameter_variables,
+        midpoint_policy = midpoint_policy,
+        store_boxes = store_boxes,
+        store_failures = store_failures,
+        diagnostics = diagnostics,
+        progress_state = nothing,
+        fail_fast = fail_fast,
+    )
+    return (ok = ok, boxes = boxes, failures = failures, diagnostics = diagnostics)
+end
+
+function _certify_hermite_segment_job(
+    sys::HCSystem,
+    node0,
+    node1;
+    parent_index,
+    max_depth,
+    rho,
+    tau,
+    node_refinement_radius,
+    tube_radius_floor,
+    radius_growth,
+    max_radius,
+    local_parameter_variables,
+    diagnostics_mode,
+    fail_fast,
+)
+    boxes = NamedTuple[]
+    failures = NamedTuple[]
+    diagnostics = diagnostics_mode === :off ? nothing : _trace_cert_diagnostics(diagnostics_mode)
+    ok = _certify_local_parameter_segment!(
+        boxes,
+        failures,
+        sys,
+        node0,
+        node1;
+        parent_index = parent_index,
+        depth = 0,
+        max_depth = max_depth,
+        rho = rho,
+        tau = tau,
+        node_refinement_radius = node_refinement_radius,
+        tube_radius_floor = tube_radius_floor,
+        radius_growth = radius_growth,
+        max_radius = max_radius,
+        diagnostics = diagnostics,
+        local_parameter_variables = local_parameter_variables,
+        fail_fast = fail_fast,
+    )
+    return (ok = ok, boxes = boxes, failures = failures, diagnostics = diagnostics)
+end
+
+function _collect_segment_jobs!(boxes, failures, diagnostics_data, results)
+    for result in results
+        append!(boxes, result.boxes)
+        append!(failures, result.failures)
+        _merge_trace_cert_diagnostics!(diagnostics_data, result.diagnostics)
+    end
+    return all(result -> result.ok, results)
+end
+
+function _run_segment_jobs_threaded(job, total::Integer, ntasks::Integer)
+    results = Vector{Any}(undef, total)
+    chunks = _thread_chunks(collect(1:total), ntasks)
+    Base.Threads.@sync for chunk in chunks
+        Base.Threads.@spawn begin
+            for pos in chunk
+                results[pos] = job(pos)
+            end
+        end
+    end
+    return results
+end
+
 """
     certify_hc_trace_adaptive_local_parameter(sys, trace; kwargs...)
 
@@ -1405,12 +1536,15 @@ function certify_hc_trace_adaptive_local_parameter(
     diagnostics = :off,
     local_parameter_variables = (),
     local_parameter_method = :endpoint_box,
-    midpoint_policy = :krawczyk_polish,
+    midpoint_policy = :krawczyk,
     store_boxes = :full,
     store_failures = :summary,
     fail_fast = true,
+    threading = false,
+    ntasks = Base.Threads.nthreads(),
 )
     points = _prepare_trace_points(sys, trace; time_map = time_map)
+    thread_count = _thread_count(threading, ntasks)
     diagnostics_data = _trace_cert_diagnostics(diagnostics)
     active_diagnostics = diagnostics_data.mode === :off ? nothing : diagnostics_data
     store_boxes = _local_parameter_store_mode(store_boxes, :store_boxes)
@@ -1436,42 +1570,78 @@ function certify_hc_trace_adaptive_local_parameter(
         boxes = NamedTuple[]
         failures = NamedTuple[]
         total = length(nodes) - 1
-        for i in 1:total
-            progress_state = show_progress ? _local_parameter_progress_state(i, total) : nothing
-            ok = _certify_local_parameter_endpoint_box_segment!(
-                boxes,
-                failures,
-                sys,
-                nodes[i],
-                nodes[i+1];
-                parent_index = i,
-                depth = 0,
-                max_depth = max_depth,
-                rho = rho,
-                tau = tau,
-                node_refinement_radius = node_refinement_radius,
-                tube_radius_floor = tube_radius_floor,
-                radius_growth = radius_growth,
-                max_radius = max_radius,
-                local_parameter_variables = local_parameter_variables,
-                midpoint_policy = midpoint_policy,
-                store_boxes = store_boxes,
-                store_failures = store_failures,
-                diagnostics = active_diagnostics,
-                progress_state = progress_state,
-                fail_fast = fail_fast,
+        if thread_count > 1 && total > 1
+            results = _run_segment_jobs_threaded(
+                i -> _certify_endpoint_box_segment_job(
+                    sys,
+                    nodes[i],
+                    nodes[i+1];
+                    parent_index = i,
+                    max_depth = max_depth,
+                    rho = rho,
+                    tau = tau,
+                    node_refinement_radius = node_refinement_radius,
+                    tube_radius_floor = tube_radius_floor,
+                    radius_growth = radius_growth,
+                    max_radius = max_radius,
+                    local_parameter_variables = local_parameter_variables,
+                    midpoint_policy = midpoint_policy,
+                    store_boxes = store_boxes,
+                    store_failures = store_failures,
+                    diagnostics_mode = diagnostics_data.mode,
+                    fail_fast = fail_fast,
+                ),
+                total,
+                thread_count,
             )
+            _collect_segment_jobs!(boxes, failures, diagnostics_data, results)
             show_progress && _local_parameter_show_progress(
-                i,
+                total,
                 total,
                 boxes,
                 failures,
-                progress_state === nothing ? (isempty(boxes) ? 0 : maximum(b -> b.depth, boxes)) : progress_state.max_depth[];
+                isempty(boxes) ? 0 : maximum(b -> b.depth, boxes);
                 label = "adaptive local-parameter endpoint-box",
-                attempts = progress_state === nothing ? nothing : progress_state.attempts[],
-                final = i == total,
+                final = true,
             )
-            !ok && fail_fast && break
+        else
+            for i in 1:total
+                progress_state = show_progress ? _local_parameter_progress_state(i, total) : nothing
+                ok = _certify_local_parameter_endpoint_box_segment!(
+                    boxes,
+                    failures,
+                    sys,
+                    nodes[i],
+                    nodes[i+1];
+                    parent_index = i,
+                    depth = 0,
+                    max_depth = max_depth,
+                    rho = rho,
+                    tau = tau,
+                    node_refinement_radius = node_refinement_radius,
+                    tube_radius_floor = tube_radius_floor,
+                    radius_growth = radius_growth,
+                    max_radius = max_radius,
+                    local_parameter_variables = local_parameter_variables,
+                    midpoint_policy = midpoint_policy,
+                    store_boxes = store_boxes,
+                    store_failures = store_failures,
+                    diagnostics = active_diagnostics,
+                    progress_state = progress_state,
+                    fail_fast = fail_fast,
+                )
+                show_progress && _local_parameter_show_progress(
+                    i,
+                    total,
+                    boxes,
+                    failures,
+                    progress_state === nothing ? (isempty(boxes) ? 0 : maximum(b -> b.depth, boxes)) : progress_state.max_depth[];
+                    label = "adaptive local-parameter endpoint-box",
+                    attempts = progress_state === nothing ? nothing : progress_state.attempts[],
+                    final = i == total,
+                )
+                !ok && fail_fast && break
+            end
         end
         return (
             success = isempty(failures),
@@ -1512,36 +1682,69 @@ function certify_hc_trace_adaptive_local_parameter(
     boxes = NamedTuple[]
     failures = NamedTuple[]
     total = length(nodes) - 1
-    for i in 1:total
-        ok = _certify_local_parameter_segment!(
-            boxes,
-            failures,
-            sys,
-            nodes[i],
-            nodes[i+1];
-            parent_index = i,
-            depth = 0,
-            max_depth = max_depth,
-            rho = rho,
-            tau = tau,
-            node_refinement_radius = node_refinement_radius,
-            tube_radius_floor = tube_radius_floor,
-            radius_growth = radius_growth,
-            max_radius = max_radius,
-            diagnostics = active_diagnostics,
-            local_parameter_variables = local_parameter_variables,
-            fail_fast = fail_fast,
+    if thread_count > 1 && total > 1
+        results = _run_segment_jobs_threaded(
+            i -> _certify_hermite_segment_job(
+                sys,
+                nodes[i],
+                nodes[i+1];
+                parent_index = i,
+                max_depth = max_depth,
+                rho = rho,
+                tau = tau,
+                node_refinement_radius = node_refinement_radius,
+                tube_radius_floor = tube_radius_floor,
+                radius_growth = radius_growth,
+                max_radius = max_radius,
+                local_parameter_variables = local_parameter_variables,
+                diagnostics_mode = diagnostics_data.mode,
+                fail_fast = fail_fast,
+            ),
+            total,
+            thread_count,
         )
+        _collect_segment_jobs!(boxes, failures, diagnostics_data, results)
         show_progress && _local_parameter_show_progress(
-            i,
+            total,
             total,
             boxes,
             failures,
             isempty(boxes) ? 0 : maximum(b -> b.depth, boxes);
             label = "adaptive local-parameter",
-            final = i == total,
+            final = true,
         )
-        !ok && fail_fast && break
+    else
+        for i in 1:total
+            ok = _certify_local_parameter_segment!(
+                boxes,
+                failures,
+                sys,
+                nodes[i],
+                nodes[i+1];
+                parent_index = i,
+                depth = 0,
+                max_depth = max_depth,
+                rho = rho,
+                tau = tau,
+                node_refinement_radius = node_refinement_radius,
+                tube_radius_floor = tube_radius_floor,
+                radius_growth = radius_growth,
+                max_radius = max_radius,
+                diagnostics = active_diagnostics,
+                local_parameter_variables = local_parameter_variables,
+                fail_fast = fail_fast,
+            )
+            show_progress && _local_parameter_show_progress(
+                i,
+                total,
+                boxes,
+                failures,
+                isempty(boxes) ? 0 : maximum(b -> b.depth, boxes);
+                label = "adaptive local-parameter",
+                final = i == total,
+            )
+            !ok && fail_fast && break
+        end
     end
 
     return (

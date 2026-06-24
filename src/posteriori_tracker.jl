@@ -409,6 +409,8 @@ function _certify_path_a_posteriori_projective(
     store_boxes,
     diagnostics,
     show_progress,
+    threading,
+    ntasks,
 )
     source = sys.source === nothing ? sys.compiled.source : sys.source
     source === nothing &&
@@ -463,7 +465,7 @@ function _certify_path_a_posteriori_projective(
                     time_map = time_map,
                     max_depth = depth_value,
                     local_parameter_method = local_parameter_method,
-                    midpoint_policy = :krawczyk_polish,
+                    midpoint_policy = :krawczyk,
                     node_refinement_radius = DEFAULT_POSTERIORI_NODE_REFINEMENT_RADIUS,
                     tau = DEFAULT_POSTERIORI_REFINEMENT_TAU,
                     radius_growth = DEFAULT_POSTERIORI_RADIUS_GROWTH,
@@ -473,6 +475,8 @@ function _certify_path_a_posteriori_projective(
                     store_failures = :summary,
                     diagnostics = diagnostics,
                     show_progress = show_progress,
+                    threading = threading,
+                    ntasks = ntasks,
                 )
             catch err
                 err isa InterruptException && rethrow(err)
@@ -584,6 +588,8 @@ Public options are intentionally compact:
   counters/diagnostic summaries.
 * `show_progress = false`
 * `throw_on_failure = false`
+* `threading = false`, `ntasks = Threads.nthreads()`: certify independent trace
+  segments concurrently when threading is enabled.
 """
 function certify_path_a_posteriori(
     sys::HCSystem,
@@ -598,11 +604,14 @@ function certify_path_a_posteriori(
     diagnostics = :off,
     show_progress = false,
     throw_on_failure = false,
+    threading = false,
+    ntasks = Base.Threads.nthreads(),
 )
     local_parameter_method in (:endpoint_box, :hermite) ||
         throw(ArgumentError("local_parameter_method must be :endpoint_box or :hermite."))
     certification_chart in (:affine, :projective, :auto) ||
         throw(ArgumentError("certification_chart must be :affine, :projective, or :auto."))
+    _thread_count(threading, ntasks)
     tracker = prepare_posteriori_tracker(sys)
     source = tracker.source
     H_hc = posteriori_hc_homotopy(tracker)
@@ -635,6 +644,8 @@ function certify_path_a_posteriori(
             store_boxes = storage_mode,
             diagnostics = diagnostics,
             show_progress = show_progress,
+            threading = threading,
+            ntasks = ntasks,
         )
         if throw_on_failure && !cert.success
             status = haskey(cert, :status) ? cert.status : :certification_failed
@@ -662,7 +673,7 @@ function certify_path_a_posteriori(
         max_step_size_schedule = _posteriori_max_step_schedule(max_step_size),
         max_depth_schedule = depth_schedule,
         local_parameter_method = local_parameter_method,
-        midpoint_policy = :krawczyk_polish,
+        midpoint_policy = :krawczyk,
         node_refinement_radius = DEFAULT_POSTERIORI_NODE_REFINEMENT_RADIUS,
         tau = DEFAULT_POSTERIORI_REFINEMENT_TAU,
         radius_growth = DEFAULT_POSTERIORI_RADIUS_GROWTH,
@@ -672,6 +683,8 @@ function certify_path_a_posteriori(
         store_failures = :summary,
         diagnostics = diagnostics,
         show_progress = show_progress,
+        threading = threading,
+        ntasks = ntasks,
     )
 
     if cert.success || certification_chart === :affine
@@ -709,6 +722,8 @@ function certify_path_a_posteriori(
         store_boxes = storage_mode,
         diagnostics = diagnostics,
         show_progress = show_progress,
+        threading = threading,
+        ntasks = ntasks,
     )
 
     if !projective_cert.success && max_step_size === nothing
