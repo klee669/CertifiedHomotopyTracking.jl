@@ -30,3 +30,8 @@ makedocs(
     ],
     checkdocs = :none,
 )
+
+deploydocs(
+    repo = "github.com/klee669/CertifiedHomotopyTracking.jl.git",
+    devbranch = "dev/v1.0.0",
+)
