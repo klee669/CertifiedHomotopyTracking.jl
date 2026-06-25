@@ -1,1 +1,14 @@
 .DS_Store
+
+# Documenter.jl build output
+docs/build/
+
+# Julia local environment/cache artifacts
+*.ji
+*.cov
+*.mem
+Manifest.toml
+
+# Local editor files
+*.swp
+*.swo

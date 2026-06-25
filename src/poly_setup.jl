@@ -1,5 +1,3 @@
-export @monodromy_setup
-
 macro monodromy_setup(block)
     # 1. Parse input (read vars = ..., params = ... format)
     args = Dict{Symbol, Any}()

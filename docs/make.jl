@@ -1,0 +1,37 @@
+using Documenter
+using CertifiedHomotopyTracking
+
+makedocs(
+    sitename = "CertifiedHomotopyTracking.jl",
+    modules = [CertifiedHomotopyTracking],
+    format = Documenter.HTML(
+        prettyurls = get(ENV, "CI", "false") == "true",
+    ),
+    pages = [
+        "Home" => "index.md",
+        "Homotopies and Systems" => "homotopies-and-systems.md",
+        "Krawczyk Test" => "krawczyk-test.md",
+        "A Posteriori Certification" => [
+            "Certification" => "posteriori/certification.md",
+            "Numerical Trace" => "posteriori/low-level.md",
+            "Visualization" => "posteriori/visualization.md",
+        ],
+        "Tracking" => [
+            "Path Tracking" => "tracking/path-tracking.md",
+            "Tracking Results" => "tracking/results.md",
+        ],
+        "Monodromy" => [
+            "Solving" => "monodromy/solving.md",
+            "Results" => "monodromy/results.md",
+            "GAP Computations" => "monodromy/gap.md",
+        ],
+        "Variety Approximations" => "variety-approximations.md",
+        "Visualization" => "visualization.md",
+    ],
+    checkdocs = :none,
+)
+
+deploydocs(
+    repo = "github.com/klee669/CertifiedHomotopyTracking.jl.git",
+    devbranch = "dev/v1.0.0",
+)

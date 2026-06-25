@@ -1,4 +1,4 @@
-export track, tracking_without_predictor, track_path
+export track_path
 
 function _print_track_progress(iter, t, h, precision_bits)
     msg = "Iter $iter: t=$(round(Float64(t); sigdigits=12)), h=$(round(Float64(h); sigdigits=12)), precision=$(precision_bits)"
@@ -168,7 +168,7 @@ function _projective_coordinate_from_chart(x, chart_idx::Int, coord_idx::Int)
     end
 end
 
-function _chart_to_projective_coordinates(sys::HCSystem, x, chart_idx::Int=sys.patch_idx)
+function _chart_to_projective_coordinates(sys::SpecializedHomotopy, x, chart_idx::Int=sys.patch_idx)
     X = Vector{eltype(x)}(undef, sys.compiled.n_vars)
     for i in eachindex(X)
         X[i] = _projective_coordinate_from_chart(x, chart_idx, i)
@@ -176,7 +176,7 @@ function _chart_to_projective_coordinates(sys::HCSystem, x, chart_idx::Int=sys.p
     return X
 end
 
-function _projective_to_chart_coordinates(sys::HCSystem, X, chart_idx::Int)
+function _projective_to_chart_coordinates(sys::SpecializedHomotopy, X, chart_idx::Int)
     scale = X[chart_idx]
     if mag_complex(scale) <= 1e-30
         throw(ArgumentError("Cannot move to projective chart $chart_idx because its coordinate is numerically zero."))
@@ -192,20 +192,20 @@ function _projective_to_chart_coordinates(sys::HCSystem, X, chart_idx::Int)
     return x
 end
 
-function _projective_to_chart_coordinates(sys::HCSystem, X)
+function _projective_to_chart_coordinates(sys::SpecializedHomotopy, X)
     mags = [mag_complex(xi) for xi in X]
     _, chart_idx = findmax(mags)
     return _projective_to_chart_coordinates(sys, X, chart_idx), chart_idx
 end
 
-function _canonical_projective_chart(sys::HCSystem, x)
+function _canonical_projective_chart(sys::SpecializedHomotopy, x)
     X = _chart_to_projective_coordinates(sys, x)
     mags = [mag_complex(xi) for xi in X]
     max_val, chart_idx = findmax(mags)
     return max_val > 1.5 ? chart_idx : sys.patch_idx
 end
 
-function _projective_chart_box(sys::HCSystem, x, chart_idx::Int, r)
+function _projective_chart_box(sys::SpecializedHomotopy, x, chart_idx::Int, r)
     CC = sys.CC
     unit = sys.RR("0 +/- 1")
     unit_box = CC(unit, unit)
@@ -223,7 +223,7 @@ function _chart_box_center_radius(y_box; inflate=1.1, min_radius=1e-30)
 end
 
 function _certified_projective_chart_transfer(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x,
     t,
     r,
@@ -259,7 +259,7 @@ end
 
 
 function _track_path_at_precision(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x_start_input::Vector{AcbFieldElem};
     t_start=0.0,
     t_end=1.0,
@@ -644,7 +644,7 @@ function _track_path_at_precision(
     return result
 end
 
-function _tracking_path_box(sys::HCSystem, x, t, r, stage::Symbol; t_start=nothing, t_end=nothing, metadata...)
+function _tracking_path_box(sys::SpecializedHomotopy, x, t, r, stage::Symbol; t_start=nothing, t_end=nothing, metadata...)
     unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
     x_box = [xi + unit * sys.CC(r) for xi in x]
     t_box = if t_start === nothing || t_end === nothing
@@ -659,7 +659,7 @@ function _tracking_path_box(sys::HCSystem, x, t, r, stage::Symbol; t_start=nothi
     return PathBox(t_box, x_box, :track_path, (; stage = stage, metadata...))
 end
 
-function _tracking_tube_path_box(sys::HCSystem, x_bound, t_start, t_end, r, stage::Symbol; metadata...)
+function _tracking_tube_path_box(sys::SpecializedHomotopy, x_bound, t_start, t_end, r, stage::Symbol; metadata...)
     unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
     x_box = [xi + unit * sys.CC(r) for xi in x_bound]
     lo = Float64(t_start)
@@ -670,8 +670,91 @@ function _tracking_tube_path_box(sys::HCSystem, x_bound, t_start, t_end, r, stag
     return PathBox(t_box, x_box, :track_path, (; stage = stage, metadata...))
 end
 
+"""
+    track_path(sys::SpecializedHomotopy, x_start; kwargs...) -> TrackResult
+    track_path(compiled::CompiledHomotopy, x_start; kwargs...) -> TrackResult
+
+Track one certified path for a specialized homotopy.
+
+The input `sys` is usually produced by [`straight_line_homotopy`](@ref) for a
+direct homotopy, or by [`make_edge_system`](@ref) from a
+[`CompiledHomotopy`](@ref) created with [`compile_edge_homotopy`](@ref).
+For a direct homotopy created with [`compile_homotopy`](@ref), the compiled
+homotopy can be passed directly; the ACB precision is inferred from `x_start`.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(256);
+F = [x^2 + 3y - 4, y^2 + 3];
+G = [x^2 - 1, y^2 - 1];
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5, 0.5));
+
+res = track_path(H, [CC(1), CC(-1)]; show_progress=false)
+success(res)
+solution(res)
+evaluate_H(H, certified_region(res), CC(1))
+```
+
+# Main options
+
+- `adaptive_precision=true`: retry failed certified tracking at higher Arb/ACB precision.
+- `min_precision=53`: first precision used when adaptive precision is enabled.
+- `max_precision=max(100_000, precision(sys.CC))`: largest retry precision.
+- `precision_rejection_threshold=8`: with adaptive precision enabled, retry the path at higher precision after
+    this many consecutive rejected steps whose Krawczyk norms do not improve significantly.
+- `t_start=0.0`, `t_end=1.0`: homotopy parameter interval.
+- `h_init=0.1`: initial step size.
+- `rho=0.7`: Krawczyk contraction threshold.
+- `show_progress=false`: print accepted-step progress.
+- `projective=false`: require projective chart tracking. This requires `sys` to
+  have been compiled with `projective=true`.
+- `affine_chart_atol=1e-10`: threshold used when deciding whether a projective
+  endpoint is near infinity in the original affine chart.
+- `store_boxes=:summary`: use `:full` to keep path boxes for later visualization.
+- `visualize=false`: when not `false`, keep path boxes and optionally export a
+  path visualization. Pass `true`, a filename, or a named tuple such as
+  `(filename="path.tex", axes=(:t, 1))`.
+- `visualize_options=(;)`: visualization/export options. See
+  [Visualization](@ref visualization) for related export helpers.
+  - `filename`: output filename for automatic export.
+  - `axes`: two or three axes. Axis entries may be `:t`, an integer coordinate,
+    or `(i, :real)`, `(i, :imag)`, `(i, :abs)`.
+  - `show_trace`: draw stored trace points when available.
+
+# Projective example
+
+```julia
+H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true);
+res = track_path(H_projective, [CC(1), CC(-1)]; projective=true);
+projective_solution(res)
+```
+
+# Visualization example
+
+```julia
+res = track_path(H, [CC(1), CC(-1)]; visualize=true);
+path_boxes(res)
+export_path_tikz(res, "path.tex"; axes=(:t, 1))
+```
+"""
 function track_path(
-    sys::HCSystem,
+    compiled::CompiledHomotopy,
+    x_start_input::Vector{AcbFieldElem};
+    kwargs...,
+)
+    if compiled.source !== nothing && compiled.source.kind != :direct
+        throw(ArgumentError("track_path(compiled, x_start) is only for direct homotopies from compile_homotopy. Use make_edge_system or SpecializedHomotopy for parameterized systems."))
+    end
+    isempty(x_start_input) && throw(ArgumentError("x_start must contain at least one coordinate."))
+    return track_path(SpecializedHomotopy(compiled, parent(x_start_input[1])), x_start_input; kwargs...)
+end
+
+function track_path(
+    sys::SpecializedHomotopy,
     x_start_input::Vector{AcbFieldElem};
     adaptive_precision=true,
     min_precision=53,
@@ -708,7 +791,7 @@ function track_path(
             initial_precision=min_precision,
             kwargs...,
         )
-        if succeeded(result) || !(result.status in retryable_statuses) || current_precision >= max_precision
+        if success(result) || !(result.status in retryable_statuses) || current_precision >= max_precision
             return _result_with_field(result, sys.CC)
         end
 

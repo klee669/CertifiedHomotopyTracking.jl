@@ -1,12 +1,13 @@
 #Pkg.instantiate()
 
 using CertifiedHomotopyTracking
+const CHT = CertifiedHomotopyTracking
 
 # ------------------------------------------------------------------------------
 # 1. Setup Polynomial Ring & System
 # ------------------------------------------------------------------------------
 # @setupfield to define variables and fields
-@monodromy_setup begin
+CHT.@monodromy_setup begin
     vars = (l1, l2, l3)
     params = (q11,q12,q13,q21,q22,q23,q31,q32,q33,s1,s2,s3,t1,t2,t3)
 end
@@ -23,7 +24,7 @@ bp = [CCi(.270068 ,.532815), CCi(.129503 ,.548293), CCi(.729218 ,.155703), CCi(.
 x = [CCi(1.87511,1.49219), CCi(2.80363,2.17955), CCi(2.50678,1.50539)]
 
 v1 = vertex(bp,[x])
-vs = parameter_points(v1, 15, 4) # make 4 parameter points in C^15 including the vertex v1.
+vs = CHT.parameter_points(v1, 15, 4) # make 4 parameter points in C^15 including the vertex v1.
 r = .1;
 
 

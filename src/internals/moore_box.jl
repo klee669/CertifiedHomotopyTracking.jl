@@ -1,6 +1,26 @@
 export refine_moore_box
 
-# refining the Moore box
+"""
+    refine_moore_box(system, point, r, A, rho)
+    refine_moore_box(sys::SpecializedHomotopy, x, t, r_init, A_init; tau=0.125)
+    refine_moore_box(variety::AlgebraicVarietySystem, x, normal_radius; kwargs...)
+
+Refine a Moore box until the corresponding Krawczyk test succeeds, or report
+failure.
+
+The `SpecializedHomotopy` method is used internally by [`track_path`](@ref). The
+`AlgebraicVarietySystem` method returns a [`VarietyBox`](@ref) and is useful for
+certifying local boxes on varieties.
+
+Common variety options:
+
+- `rank_tol=1e-10`: local Jacobian rank threshold.
+- `rho=1/8`: Krawczyk threshold.
+- `tau=0.125`: initial shrink threshold.
+- `min_radius=0`, `max_radius=1.0`: radius bounds.
+- `growth_factor=2.0`, `radius_shrink_factor=0.5`: radius adjustment factors.
+- `max_iter=20`: maximum radius/refinement attempts.
+"""
 function refine_moore_box(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 
     point::Vector{AcbFieldElem}, 
@@ -28,8 +48,8 @@ function refine_moore_box(
 end
 
 
-function refine_moore_box(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r_init, A_init; tau=0.125)
-    state = (y=copy(x), A=copy(A_init), t=t)
+function refine_moore_box(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r_init, A_init; tau=0.125)
+    state = (y=copy(x), A=compute_preconditioner(sys, x, t), t=t)
     return _refine_moore_box(sys, state, sys.RR(r_init); rho=tau)
 end
 
@@ -76,25 +96,25 @@ function _refine_moore_box(
     return _moore_failure(problem, state, r, last_k_norm)
 end
 
-_moore_prepare(::HCSystem, state; kwargs...) = state
+_moore_prepare(::SpecializedHomotopy, state; kwargs...) = state
 
-_moore_test(sys::HCSystem, state, r, rho) =
+_moore_test(sys::SpecializedHomotopy, state, r, rho) =
     krawczyk_test(sys, state.y, state.t, r, state.A; rho=rho)
 
-_moore_correction(sys::HCSystem, state) = state.A * evaluate_H(sys, state.y, state.t)
+_moore_correction(sys::SpecializedHomotopy, state) = state.A * evaluate_H(sys, state.y, state.t)
 
-_moore_should_shrink(::HCSystem, state, delta, r, rho) =
+_moore_should_shrink(::SpecializedHomotopy, state, delta, r, rho) =
     norm_inf(delta) <= (1/64) * rho * Float64(r)
 
-function _moore_apply_correction(sys::HCSystem, state, delta; kwargs...)
+function _moore_apply_correction(sys::SpecializedHomotopy, state, delta; kwargs...)
     y = get_mid_vec(state.y - delta)
     A = inv_acb(evaluate_Jac(sys, y, state.t))
     return (y=y, A=A, t=state.t)
 end
 
-_moore_success(::HCSystem, state, r, k_norm) = (state.y, r, state.A, true)
+_moore_success(::SpecializedHomotopy, state, r, k_norm) = (state.y, r, state.A, true)
 
-_moore_failure(::HCSystem, state, r, k_norm) = (state.y, r, state.A, false)
+_moore_failure(::SpecializedHomotopy, state, r, k_norm) = (state.y, r, state.A, false)
 
 
 function refine_moore_box(

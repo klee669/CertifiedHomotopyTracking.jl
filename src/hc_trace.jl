@@ -25,15 +25,36 @@ Keyword arguments are passed into `HomotopyContinuation.TrackerOptions` where
 applicable:
 
 * `t_start = 1.0`, `t_target = 0.0`: tracking direction.
-* `parameters = :default`
+* `parameters = :default`: use HomotopyContinuation.jl's default parameter
+  handling for the reconstructed homotopy. For parameterized HC.jl systems this
+  may be replaced with an explicit parameter value object accepted by HC.jl.
 * `max_steps = 10_000`
-* `max_step_size = Inf`
+* `max_step_size = Inf`: do not impose an extra cap on HC.jl's adaptive step
+  size. Give a positive finite value to force a denser trace.
 * `throw_on_failure = false`: throw an `ErrorException` if HC.jl does not report
   success.
 
 Returns a named tuple
 `(trace, status, success, accepted_steps, rejected_steps)`, where `trace` is a
 vector of named tuples `(t = ..., x = ...)`.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(128);
+F = [x^2 + 3*y - 4, y^2 + 3];
+G = [x^2 - 1, y^2 - 1];
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5, 0.5));
+tracker = prepare_posteriori_tracker(H);
+H_hc = posteriori_hc_homotopy(tracker);
+trace = collect_hc_trace(H_hc, ComplexF64[1, -1]; t_start=0.0, t_target=1.0);
+
+trace.success
+length(trace.trace)
+```
 """
 function collect_hc_trace(
     H,

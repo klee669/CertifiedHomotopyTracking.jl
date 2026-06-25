@@ -1,5 +1,5 @@
 export PosterioriTracker, PosterioriPathResult, prepare_posteriori_tracker, posteriori_hc_system,
-       posteriori_hc_homotopy, certify_path_a_posteriori
+       posteriori_hc_homotopy, certify_posteriori
 
 import HomotopyContinuation
 
@@ -7,6 +7,14 @@ _complex_f64_vector(values) = ComplexF64[ComplexF64(value) for value in values]
 
 const _POSTERIORI_PROJECTIVE_COMPILED_CACHE = IdDict{CompiledHomotopy,CompiledHomotopy}()
 
+"""
+    PosterioriPathResult
+
+Property-forwarding result wrapper returned by [`certify_posteriori`](@ref).
+
+Access fields with dot syntax, for example `cert.success`, `cert.total_boxes`,
+`cert.max_depth`, `cert.failed_segments`, and `cert.hc_trace`.
+"""
 struct PosterioriPathResult
     data::NamedTuple
 end
@@ -21,6 +29,45 @@ Base.propertynames(result::PosterioriPathResult; private::Bool = false) =
 Base.haskey(result::PosterioriPathResult, key::Symbol) = haskey(getfield(result, :data), key)
 Base.keys(result::PosterioriPathResult) = keys(getfield(result, :data))
 Base.getindex(result::PosterioriPathResult, key::Symbol) = getproperty(result, key)
+Base.success(result::PosterioriPathResult) = result.success
+
+function _posteriori_endpoint_field(result::PosterioriPathResult)
+    data = getfield(result, :data)
+    if haskey(data, :affine_endpoint)
+        endpoint = data.affine_endpoint
+        isempty(endpoint) || return parent(endpoint[1]).(endpoint)
+    end
+    if haskey(data, :hc_trace) && haskey(data.hc_trace, :trace) && !isempty(data.hc_trace.trace)
+        tracker = get(data, :posteriori_tracker, nothing)
+        CC = if tracker !== nothing && tracker.cht_system_cache !== nothing
+            tracker.cht_system_cache.CC
+        elseif tracker !== nothing
+            AcbField(max(53, precision(tracker.compiled.CC)))
+        else
+            AcbField(53)
+        end
+        return CC.(last(data.hc_trace.trace).x)
+    end
+    return AcbFieldElem[]
+end
+
+"""
+    certified_region(cert::PosterioriPathResult)
+
+Return the final endpoint of the certified HC.jl trace as an ACB vector.
+
+For a posteriori certification this is the numerical trace endpoint lifted into
+the CHT field; the certificate is the verified tube/box data stored in `cert`.
+"""
+certified_region(cert::PosterioriPathResult) = _posteriori_endpoint_field(cert)
+
+"""
+    solution(cert::PosterioriPathResult)
+
+Return a `Vector{ComplexF64}` obtained from the midpoint of
+[`certified_region`](@ref).
+"""
+solution(cert::PosterioriPathResult) = convert_to_double_int.(certified_region(cert))
 
 function Base.show(io::IO, result::PosterioriPathResult)
     data = getfield(result, :data)
@@ -47,6 +94,16 @@ end
 
 Base.show(io::IO, ::MIME"text/plain", result::PosterioriPathResult) = show(io, result)
 
+"""
+    PosterioriTracker
+
+Cache object used to reconstruct HomotopyContinuation.jl systems/homotopies from
+CHT source metadata for a posteriori certification.
+
+Construct one with [`prepare_posteriori_tracker`](@ref). Most users should call
+[`certify_posteriori`](@ref) directly; the tracker is mainly useful when
+you want to inspect or reuse the reconstructed HomotopyContinuation.jl objects.
+"""
 mutable struct PosterioriTracker
     compiled::CompiledHomotopy
     source::HomotopySourceData
@@ -59,13 +116,21 @@ mutable struct PosterioriTracker
     hc_t_cache::Any
 end
 
+"""
+    prepare_posteriori_tracker(compiled_or_sys) -> PosterioriTracker
+
+Create a tracker cache for a [`CompiledHomotopy`](@ref) or [`SpecializedHomotopy`](@ref).
+
+The input must contain source metadata, which is produced by the current
+`compile_*` constructors and [`straight_line_homotopy`](@ref).
+"""
 function prepare_posteriori_tracker(compiled::CompiledHomotopy)
     compiled.source === nothing &&
         throw(ArgumentError("compiled homotopy does not contain source metadata. Recompile it with compile_edge_homotopy or compile_homotopy."))
     return PosterioriTracker(compiled, compiled.source, nothing, nothing, nothing, nothing, nothing, nothing, nothing)
 end
 
-function prepare_posteriori_tracker(sys::HCSystem)
+function prepare_posteriori_tracker(sys::SpecializedHomotopy)
     source = sys.source === nothing ? sys.compiled.source : sys.source
     source === nothing &&
         throw(ArgumentError("specialized homotopy does not contain source metadata. Rebuild it with source-aware constructors."))
@@ -186,6 +251,16 @@ function _build_posteriori_hc_system!(tracker::PosterioriTracker)
     return tracker
 end
 
+"""
+    posteriori_hc_system(tracker::PosterioriTracker)
+
+Return a reconstructed HomotopyContinuation.jl `System` for an edge homotopy
+source.
+
+This is an HC.jl `System`, not a CHT [`SpecializedHomotopy`](@ref). It is only
+defined for parameter/edge homotopies; direct homotopies reconstruct directly as
+HomotopyContinuation.jl `Homotopy` objects.
+"""
 function posteriori_hc_system(tracker::PosterioriTracker)
     tracker.source.kind === :edge ||
         throw(ArgumentError("posteriori_hc_system is only defined for edge homotopy sources."))
@@ -193,6 +268,24 @@ function posteriori_hc_system(tracker::PosterioriTracker)
     return tracker.hc_system_cache
 end
 
+"""
+    posteriori_hc_homotopy(tracker; kwargs...)
+
+Return a HomotopyContinuation.jl homotopy reconstructed from `tracker`.
+
+For direct homotopies this returns the reconstructed HC.jl `Homotopy`. For
+parameter/edge homotopies it combines the reconstructed HC.jl `System` with the
+stored start and target parameter values and returns an HC.jl parameter
+homotopy.
+
+# Options
+
+- `start_parameters`, `target_parameters`: parameter endpoint values for edge
+  sources. If `tracker` was prepared from a [`SpecializedHomotopy`](@ref), these default to
+  the system's stored `p_start` and `p_end`.
+- `const_parameters=ComplexF64[]`: fixed constants for edge sources.
+- `parameter_values=nothing`: fixed parameter vector for direct homotopies.
+"""
 function posteriori_hc_homotopy(
     tracker::PosterioriTracker;
     start_parameters = nothing,
@@ -284,7 +377,7 @@ function _posteriori_storage_mode(store_boxes)
 end
 
 function _refine_start_for_hc_trace(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x_start,
     t_cht;
     radius,
@@ -331,7 +424,7 @@ function _posteriori_projective_compiled(compiled::CompiledHomotopy)
     return projective_compiled
 end
 
-function _posteriori_projective_system(sys::HCSystem)
+function _posteriori_projective_system(sys::SpecializedHomotopy)
     compiled_projective = _posteriori_projective_compiled(sys.compiled)
     source = sys.source === nothing ? sys.compiled.source : sys.source
     if source.kind === :edge
@@ -398,7 +491,7 @@ end
 
 function _certify_path_a_posteriori_projective(
     H_hc,
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x_start;
     time_map,
     max_step_size_schedule,
@@ -560,12 +653,34 @@ function _certify_path_a_posteriori_projective(
 end
 
 """
-    certify_path_a_posteriori(sys, x_start; kwargs...)
+    certify_posteriori(sys, x_start; kwargs...)
+    certify_posteriori(compiled::CompiledHomotopy, x_start; kwargs...)
 
-Collect an HC.jl numerical trace for a specialized CHT homotopy and certify that
-trace a posteriori. This is the high-level convenience wrapper around
-`prepare_posteriori_tracker`, `posteriori_hc_homotopy`, `collect_hc_trace`, and
-the trace certifiers.
+Collect an HC.jl numerical trace for a specialized homotopy and certify the
+trace a posteriori.
+
+The default verifier does not force every segment to use `t` as its parameter.
+For each trace segment it can choose a local parameter from `t`, `Re(x_i)`, or
+`Im(x_i)`, then certifies the remaining coordinates with an interval Krawczyk
+test.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(128);
+F = [x^2 + 3*y - 4, y^2 + 3];
+G = [x^2 - 1, y^2 - 1];
+
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5, 0.5));
+cert = certify_posteriori(H, [CC(1), CC(-1)]; max_step_size=Inf, max_depth=6)
+
+cert.success
+cert.total_boxes
+cert.failed_segments
+```
 
 Public options are intentionally compact:
 
@@ -576,23 +691,50 @@ Public options are intentionally compact:
   Give an integer to try only that depth.
 * `local_parameter_variables = ()`: optionally restrict adaptive local-parameter
   candidates to selected variables by name or index. The homotopy parameter `t`
-  is always kept as a candidate.
-* `local_parameter_method = :endpoint_box`: use `:hermite` to compare against the
-  Hermite local-parameter tube validator.
+  is always kept as a candidate. By default, CHT may choose among `t`,
+  `Re(x_i)`, and `Im(x_i)` on each segment, which helps certify paths where `t`
+  alone is a poor local coordinate.
+* `local_parameter_method = :endpoint_box`: validate each segment by enclosing
+  the endpoints in an interval box for the chosen local parameter and applying
+  an interval Krawczyk test to the remaining coordinates.
 * `certification_chart = :affine`: use `:projective` to certify the same HC trace
   in a projective chart. Use `:auto` to try affine certification first and retry
   in a projective chart only if affine certification fails. With
   `projective_chart = :auto`, a projective chart is chosen from the trace.
 * `store_boxes = :summary`: use `:full` only for visualization/debugging.
-* `diagnostics = :off`: use `:basic` or `:timing` to record certification
-  counters/diagnostic summaries.
+* `visualize = false`: when not `false`, keep visualization boxes and optionally
+  export them. Pass `true`, a filename, or a named tuple such as
+  `(filename = "posteriori.tex", axes = (:t, 1), show_trace = true)`.
+* `visualize_options = (;)`: visualization/export options. See
+  [Visualization](@ref visualization) for related export helpers.
+  - `filename`: output filename for automatic export.
+  - `axes`: two or three axes. Axis entries may be `:t`, an integer coordinate,
+    or `(i, :real)`, `(i, :imag)`, `(i, :abs)`.
+  - `show_trace`: draw the HC.jl trace when exporting.
+* `diagnostics = :off`: use `:basic` to record certification counters such as
+  node refinements, segment attempts, Krawczyk validation calls, and chosen local
+  parameters. Use `:timing` to include timing fields as well.
 * `show_progress = false`
-* `throw_on_failure = false`
+* `throw_on_failure = false`: return a [`PosterioriPathResult`](@ref) with
+  failure details when certification fails. Set to `true` to throw an exception
+  instead of returning a failed result.
 * `threading = false`, `ntasks = Threads.nthreads()`: certify independent trace
   segments concurrently when threading is enabled.
 """
-function certify_path_a_posteriori(
-    sys::HCSystem,
+function certify_posteriori(
+    compiled::CompiledHomotopy,
+    x_start::Vector{AcbFieldElem};
+    kwargs...,
+)
+    if compiled.source !== nothing && compiled.source.kind != :direct
+        throw(ArgumentError("certify_posteriori(compiled, x_start) is only for direct homotopies from compile_homotopy. Use make_edge_system or SpecializedHomotopy for parameterized systems."))
+    end
+    isempty(x_start) && throw(ArgumentError("x_start must contain at least one coordinate."))
+    return certify_posteriori(SpecializedHomotopy(compiled, parent(x_start[1])), x_start; kwargs...)
+end
+
+function certify_posteriori(
+    sys::SpecializedHomotopy,
     x_start;
     max_step_size = nothing,
     max_depth = nothing,
@@ -754,7 +896,9 @@ function certify_path_a_posteriori(
     return PosterioriPathResult(data)
 end
 
-function _attach_posteriori_visualization(data, sys::HCSystem; visualize, visualization_filename, visualization_axes, visualization_show_trace=false, visualize_options=(;))
+certify_path_a_posteriori(args...; kwargs...) = certify_posteriori(args...; kwargs...)
+
+function _attach_posteriori_visualization(data, sys::SpecializedHomotopy; visualize, visualization_filename, visualization_axes, visualization_show_trace=false, visualize_options=(;))
     if haskey(data, :boxes)
         pboxes = _posteriori_path_boxes(sys, data.boxes)
         trace_points = _posteriori_trace_path_boxes(sys, data)
@@ -783,7 +927,7 @@ function _posteriori_trace_time(data, t)
     return Float64(t)
 end
 
-function _posteriori_trace_path_boxes(sys::HCSystem, data)
+function _posteriori_trace_path_boxes(sys::SpecializedHomotopy, data)
     haskey(data, :hc_trace) || return PathBox[]
     trace_data = data.hc_trace
     haskey(trace_data, :trace) || return PathBox[]
@@ -798,7 +942,7 @@ function _posteriori_trace_path_boxes(sys::HCSystem, data)
     ]
 end
 
-function _posteriori_path_boxes(sys::HCSystem, boxes)
+function _posteriori_path_boxes(sys::SpecializedHomotopy, boxes)
     out = PathBox[]
     for box in boxes
         haskey(box, :unknown_box) || continue

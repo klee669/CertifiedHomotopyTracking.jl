@@ -1,8 +1,27 @@
-export HomotopySourceData, CompiledHomotopy, HCSystem, SpecializedHomotopy,
+export HomotopySourceData, CompiledHomotopy, SpecializedHomotopy,
        TMCache, evaluate_H, evaluate_H_default, evaluate_Jac,
        evaluate_dt, system_with_precision, register_tm_H_evaluator!,
        unregister_tm_H_evaluator!
 
+"""
+    HomotopySourceData
+
+Metadata describing the symbolic source used to build a compiled homotopy.
+
+This is stored in [`CompiledHomotopy`](@ref) and [`SpecializedHomotopy`](@ref) so that
+a posteriori certification can reconstruct a HomotopyContinuation.jl system.
+Most users do not construct this type directly.
+
+Fields:
+
+- `kind`: `:direct`, `:edge`, or `:system`.
+- `equations`: symbolic equations after internal coefficient parameterization.
+- `variables`: unknown variables.
+- `parameters`: homotopy or system parameters.
+- `t_var`: homotopy parameter for direct homotopies, or `nothing`.
+- `const_vars`: symbolic constants treated as fixed parameters.
+- `projective`: whether the source was compiled projectively.
+"""
 struct HomotopySourceData
     kind::Symbol
     equations::Any
@@ -13,6 +32,25 @@ struct HomotopySourceData
     projective::Bool
 end
 
+"""
+    CompiledHomotopy
+
+Compiled evaluators for a homotopy or polynomial system.
+
+Users usually obtain this from [`compile_homotopy`](@ref),
+[`compile_system`](@ref), or [`compile_edge_homotopy`](@ref). Direct homotopies
+can be passed to [`track_path`](@ref); parameter homotopies are specialized with
+[`make_edge_system`](@ref) before tracking.
+
+Important fields:
+
+- `func_H`, `func_Jx`, `func_dt`: compiled evaluators for `H`, `dH/dx`, and `dH/dt`.
+- `projective_coordinates`: whether homogeneous coordinates are used.
+- `projective_patch`: whether chart evaluators are available.
+- `n_vars`: number of compiled variables, including the homogenizing coordinate
+  for projective systems.
+- `source`: optional [`HomotopySourceData`](@ref) for a posteriori certification.
+"""
 struct CompiledHomotopy
     func_H::Function
     func_Jx::Function
@@ -104,7 +142,31 @@ function Base.show(io::IO, compiled::CompiledHomotopy)
     print(io, "CompiledHomotopy(projective_coordinates=", compiled.projective_coordinates, ", n_vars=", compiled.n_vars, ", projective_patch=", compiled.projective_patch, ")")
 end
 
-mutable struct HCSystem
+"""
+    SpecializedHomotopy
+
+Tracking-ready homotopy used by [`track_path`](@ref).
+
+A `SpecializedHomotopy` combines a [`CompiledHomotopy`](@ref), concrete start
+and target parameter values, fixed constants, an Arb/ACB precision, and
+projective chart state. It represents a homotopy ready for numerical
+evaluation.
+
+Constructors:
+
+```julia
+SpecializedHomotopy(compiled, p_start, p_end, p_const=AcbFieldElem[]; source=compiled.source)
+SpecializedHomotopy(compiled, CC::AcbField; source=compiled.source)
+```
+
+Prefer higher-level constructors when possible:
+
+- [`straight_line_homotopy`](@ref) for direct start-target homotopies.
+- [`track_path(compiled, x_start)`](@ref track_path) for direct homotopies from
+  [`compile_homotopy`](@ref).
+- [`make_edge_system`](@ref) for parameter homotopies from `p_start` to `p_end`.
+"""
+mutable struct SpecializedHomotopy
     compiled::CompiledHomotopy
     p_start::Tuple{Vararg{AcbFieldElem}}
     p_end::Tuple{Vararg{AcbFieldElem}}
@@ -117,7 +179,7 @@ mutable struct HCSystem
     CC::AcbField 
     RR::ArbField
     
-    function HCSystem(
+    function SpecializedHomotopy(
         compiled::CompiledHomotopy,
         p_start::Vector{AcbFieldElem},
         p_end::Vector{AcbFieldElem},
@@ -139,7 +201,7 @@ mutable struct HCSystem
         new(compiled, Tuple(p_start), Tuple(p_end), Tuple(p_const_full), compiled.projective_coordinates, 1, patch_tuple, source, CC, RR)
     end
 
-    function HCSystem(
+    function SpecializedHomotopy(
         compiled::CompiledHomotopy,
         CC::AcbField;
         patch_vector::Vector{AcbFieldElem}=AcbFieldElem[],
@@ -159,12 +221,10 @@ mutable struct HCSystem
     end
 end
 
-const SpecializedHomotopy = HCSystem
-
-function Base.show(io::IO, sys::HCSystem)
+function Base.show(io::IO, sys::SpecializedHomotopy)
     print(
         io,
-        "HCSystem(",
+        "SpecializedHomotopy(",
         sys.compiled,
         ", params=", length(sys.p_start),
         ", consts=", length(sys.p_const),
@@ -173,8 +233,8 @@ function Base.show(io::IO, sys::HCSystem)
     )
 end
 
-has_projective_patch(sys::HCSystem) = !isempty(sys.patch_vector)
-uses_projective_charts(sys::HCSystem) = sys.compiled.projective_patch
+has_projective_patch(sys::SpecializedHomotopy) = !isempty(sys.patch_vector)
+uses_projective_charts(sys::SpecializedHomotopy) = sys.compiled.projective_patch
 
 _convert_acb_vector(CC::AcbField, values) = AcbFieldElem[CC(value) for value in values]
 _convert_fixed_const_values(CC::AcbField, values) =
@@ -197,16 +257,25 @@ function _complete_const_values(compiled::CompiledHomotopy, CC::AcbField, p_cons
     end
 end
 
-function system_with_precision(sys::HCSystem, precision_bits::Integer)
+"""
+    system_with_precision(sys::SpecializedHomotopy, precision_bits::Integer)
+
+Return an `SpecializedHomotopy` with the same compiled data and parameters as `sys`, but
+with all stored ACB values converted to `AcbField(precision_bits)`.
+
+This is used internally by adaptive-precision [`track_path`](@ref), and can also
+be useful when manually retrying a difficult path.
+"""
+function system_with_precision(sys::SpecializedHomotopy, precision_bits::Integer)
     precision_bits > 0 || throw(ArgumentError("precision_bits must be positive."))
     precision(sys.CC) == precision_bits && return sys
 
     CC = AcbField(precision_bits)
     patch_vector = _convert_acb_vector(CC, sys.patch_vector)
     rebuilt = if isempty(sys.p_start)
-        HCSystem(sys.compiled, CC; patch_vector=patch_vector, source=sys.source)
+        SpecializedHomotopy(sys.compiled, CC; patch_vector=patch_vector, source=sys.source)
     else
-        HCSystem(
+        SpecializedHomotopy(
             sys.compiled,
             _convert_acb_vector(CC, sys.p_start),
             _convert_acb_vector(CC, sys.p_end),
@@ -219,7 +288,7 @@ function system_with_precision(sys::HCSystem, precision_bits::Integer)
     return rebuilt
 end
 
-function _patch_value(sys::HCSystem, x)
+function _patch_value(sys::SpecializedHomotopy, x)
     result = zero(sys.patch_vector[1] * x[1])
     for i in 1:length(sys.patch_vector)
         result += sys.patch_vector[i] * x[i]
@@ -227,10 +296,10 @@ function _patch_value(sys::HCSystem, x)
     return result - 1
 end
 
-_coerce_eval_values(sys::HCSystem, values, x::AbstractVector{<:AcbFieldElem}) = sys.CC.(values)
-_coerce_eval_values(sys::HCSystem, values, x) = values
+_coerce_eval_values(sys::SpecializedHomotopy, values, x::AbstractVector{<:AcbFieldElem}) = sys.CC.(values)
+_coerce_eval_values(sys::SpecializedHomotopy, values, x) = values
 
-function _chart_input_for_evaluation(sys::HCSystem, x)
+function _chart_input_for_evaluation(sys::SpecializedHomotopy, x)
     !uses_projective_charts(sys) && return x, sys.patch_idx
     length(x) == sys.compiled.n_vars - 1 && return x, sys.patch_idx
     length(x) == sys.compiled.n_vars || throw(DimensionMismatch("Projective chart evaluation expects chart length n or projective-coordinate length n + 1."))
@@ -262,7 +331,7 @@ struct TMCache
     end
 end
 
-function evaluate_H_augmented(sys::HCSystem, x, t)
+function evaluate_H_augmented(sys::SpecializedHomotopy, x, t)
     if uses_projective_charts(sys)
         x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
         return _coerce_eval_values(sys, sys.compiled.chart_func_H[chart_idx](x_chart, t, sys.p_start..., sys.p_end..., sys.p_const...), x_chart)
@@ -294,17 +363,25 @@ _is_taylor_model3_like(x) =
     hasproperty(x, :c0) && hasproperty(x, :c1) && hasproperty(x, :c2) &&
     hasproperty(x, :c3) && hasproperty(x, :rem) && hasproperty(x, :h)
 
-_use_registered_tm_H_evaluator(sys::HCSystem, x, t) =
+_use_registered_tm_H_evaluator(sys::SpecializedHomotopy, x, t) =
     haskey(_TM_H_EVALUATORS, sys.compiled) &&
     x isa AbstractVector && !isempty(x) &&
     _is_taylor_model3_like(first(x)) &&
     _is_taylor_model3_like(t)
 
-function evaluate_H_default(sys::HCSystem, x, t)
+function evaluate_H_default(sys::SpecializedHomotopy, x, t)
     return evaluate_H_augmented(sys, x, t)
 end
 
-function evaluate_H(sys::HCSystem, x, t)
+"""
+    evaluate_H(sys::SpecializedHomotopy, x, t)
+
+Evaluate the specialized homotopy equations at point `x` and parameter `t`.
+
+For projective systems compiled with coordinate charts, `x` may be either chart
+coordinates or full projective coordinates.
+"""
+function evaluate_H(sys::SpecializedHomotopy, x, t)
     if _use_registered_tm_H_evaluator(sys, x, t)
         val_sys = _TM_H_EVALUATORS[sys.compiled](sys, x, t)
         if !sys.projective_coordinates
@@ -318,7 +395,12 @@ function evaluate_H(sys::HCSystem, x, t)
     return evaluate_H_augmented(sys, x, t)
 end
 
-function evaluate_Jac(sys::HCSystem, x, t)
+"""
+    evaluate_Jac(sys::SpecializedHomotopy, x, t)
+
+Evaluate the Jacobian of the specialized homotopy with respect to the unknowns.
+"""
+function evaluate_Jac(sys::SpecializedHomotopy, x, t)
     CC = sys.CC 
     if uses_projective_charts(sys)
         x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
@@ -344,7 +426,7 @@ function evaluate_Jac(sys::HCSystem, x, t)
     end
 end
 
-function evaluate_dt_augmented(sys::HCSystem, x, t)
+function evaluate_dt_augmented(sys::SpecializedHomotopy, x, t)
     CC = sys.CC 
     if uses_projective_charts(sys)
         x_chart, chart_idx = _chart_input_for_evaluation(sys, x)
@@ -357,4 +439,10 @@ function evaluate_dt_augmented(sys::HCSystem, x, t)
         return [val_dt; CC(0)]
     end
 end
-evaluate_dt(sys::HCSystem, x, t) = evaluate_dt_augmented(sys, x, t)
+"""
+    evaluate_dt(sys::SpecializedHomotopy, x, t)
+
+Evaluate the derivative of the specialized homotopy with respect to the homotopy
+parameter `t`.
+"""
+evaluate_dt(sys::SpecializedHomotopy, x, t) = evaluate_dt_augmented(sys, x, t)

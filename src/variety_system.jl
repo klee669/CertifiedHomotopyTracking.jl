@@ -1,7 +1,21 @@
-export AlgebraicVarietySystem, VarietyFrame, VarietyBox, VarietyApproximation,
+export AlgebraicVarietySystem, VarietyBox, VarietyApproximation,
        variety_system, system, evaluate_system, jacobian_system,
-       local_tangent_normal_frame, certified_variety_approximation, export_variety_obj
+       certified_variety_approximation, export_variety_obj
 
+"""
+    VarietyFrame
+
+Local tangent-normal decomposition for an [`AlgebraicVarietySystem`](@ref).
+
+Fields:
+
+- `tangent`: basis for the local tangent directions.
+- `normal`: basis for the normal directions.
+- `equation_basis`: selected equation-space basis from the Jacobian SVD.
+- `preconditioner`: inverse compressed normal Jacobian used by Krawczyk tests.
+- `rank`: numerical Jacobian rank.
+- `dim`: local variety dimension.
+"""
 struct VarietyFrame
     tangent::Matrix{AcbFieldElem}
     normal::Matrix{AcbFieldElem}
@@ -11,6 +25,20 @@ struct VarietyFrame
     dim::Int
 end
 
+"""
+    VarietyBox
+
+Certified local box for a variety.
+
+Fields:
+
+- `center`: center point.
+- `frame`: internal local tangent-normal data used by the certification boxes.
+- `tangent_radius`: radius in tangent directions.
+- `normal_radius`: radius in normal directions.
+- `krawczyk_norm`: final Krawczyk norm.
+- `success`: whether certification/refinement succeeded.
+"""
 struct VarietyBox
     center::Vector{AcbFieldElem}
     frame::VarietyFrame
@@ -20,6 +48,20 @@ struct VarietyBox
     success::Bool
 end
 
+"""
+    VarietyApproximation
+
+Collection of certified variety boxes returned by
+[`certified_variety_approximation`](@ref).
+
+Fields:
+
+- `boxes`: accepted [`VarietyBox`](@ref)s.
+- `attempted`: number of candidate boxes attempted.
+- `rejected`: number of failed candidates.
+- `skipped_overlap`: number of candidates skipped because they overlapped existing boxes.
+- `max_boxes`: requested maximum number of boxes.
+"""
 struct VarietyApproximation
     boxes::Vector{VarietyBox}
     attempted::Int
@@ -28,15 +70,28 @@ struct VarietyApproximation
     max_boxes::Int
 end
 
+"""
+    AlgebraicVarietySystem
+
+Wrapper for a static polynomial system treated as an algebraic variety.
+
+Use [`variety_system`](@ref) to build one from Symbolics expressions. The
+underlying [`SpecializedHomotopy`](@ref) is available through [`system`](@ref).
+"""
 struct AlgebraicVarietySystem
-    system::HCSystem
+    system::SpecializedHomotopy
     t::AcbFieldElem
 end
 
-function AlgebraicVarietySystem(sys::HCSystem)
+function AlgebraicVarietySystem(sys::SpecializedHomotopy)
     return AlgebraicVarietySystem(sys, sys.CC(0))
 end
 
+"""
+    system(variety::AlgebraicVarietySystem) -> SpecializedHomotopy
+
+Return the underlying [`SpecializedHomotopy`](@ref).
+"""
 system(variety::AlgebraicVarietySystem) = variety.system
 
 function Base.show(io::IO, variety::AlgebraicVarietySystem)
@@ -47,11 +102,32 @@ function _as_acb_vector(CC::AcbField, x)
     return AcbFieldElem[CC(xi) for xi in x]
 end
 
+"""
+    evaluate_system(variety, x)
+
+Evaluate the defining equations of `variety` at `x`.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y z;
+CC = AcbField(128);
+surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);
+evaluate_system(surface, [CC(1), CC(0), CC(0)])
+```
+"""
 function evaluate_system(variety::AlgebraicVarietySystem, x)
     sys = variety.system
     return evaluate_H(sys, _as_acb_vector(sys.CC, x), variety.t)
 end
 
+"""
+    jacobian_system(variety, x)
+
+Evaluate the Jacobian matrix of the defining equations of `variety` at `x`.
+"""
 function jacobian_system(variety::AlgebraicVarietySystem, x)
     sys = variety.system
     return evaluate_Jac(sys, _as_acb_vector(sys.CC, x), variety.t)
@@ -70,6 +146,15 @@ function _rank_from_singular_values(s::AbstractVector; rank_tol)
     return count(σ -> σ > rank_tol, s)
 end
 
+"""
+    local_tangent_normal_frame(variety, x; rank_tol=1e-10) -> VarietyFrame
+
+Compute a numerical tangent-normal frame for `variety` near `x` using an SVD of
+the Jacobian.
+
+`rank_tol` controls the singular-value threshold used to determine the local
+rank and dimension.
+"""
 function local_tangent_normal_frame(
     variety::AlgebraicVarietySystem,
     x;
@@ -365,6 +450,48 @@ function _process_variety_candidate(
     )
 end
 
+"""
+    certified_variety_approximation(variety, start; kwargs...) -> VarietyApproximation
+
+Build a small certified paving of an algebraic variety starting from one or more
+seed points.
+
+# Options
+
+- `max_boxes=100`: maximum accepted boxes.
+- `tangent_radius=0.1`: initial tangent radius.
+- `normal_radius=tangent_radius`: initial normal radius.
+- `normal_rho=1/8`: Krawczyk threshold for normal refinement.
+- `tangent_rho=7/8`: Krawczyk threshold for tangent-box validation.
+- `rank_tol=1e-10`: Jacobian rank threshold.
+- `min_radius=1e-12`, `min_tangent_radius=min_radius`: minimum allowed radii.
+- `max_radius=1.0`, `max_tangent_radius=max_radius`: maximum allowed radii.
+- `tangent_growth_factor=2.0`: growth factor when expanding tangent radii.
+- `radius_shrink_factor=0.5`: shrink factor after failed refinement.
+- `max_refinement_iter=20`: maximum local radius adjustment attempts.
+- `newton_tol=1e-24`, `max_newton_steps=10`: center polishing controls.
+- `facet_anchor_scale=1.0`: scale used to generate neighboring candidate anchors.
+- `overlap_factor=0.75`: distance threshold for skipping overlapping boxes.
+- `threading=false`, `ntasks=Threads.nthreads()`: process batches concurrently.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y z;
+CC = AcbField(128);
+surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);
+approx = certified_variety_approximation(
+    surface,
+    [CC(1), CC(0), CC(0)];
+    tangent_radius=1e-3,
+    normal_radius=1e-3,
+    max_boxes=5,
+)
+length(approx.boxes)
+```
+"""
 function certified_variety_approximation(
     variety::AlgebraicVarietySystem,
     start;
@@ -536,6 +663,15 @@ function _write_obj_box!(io, box::VarietyBox, vertex_offset::Int)
     return vertex_offset + length(corners)
 end
 
+"""
+    export_variety_obj(boxes, filename)
+    export_variety_obj(approx::VarietyApproximation, filename)
+    export_variety_obj(box::VarietyBox, filename)
+
+Export certified variety boxes to a simple Wavefront OBJ file.
+
+Currently supports ambient dimension at most 3.
+"""
 function export_variety_obj(boxes::AbstractVector{VarietyBox}, filename::AbstractString)
     open(filename, "w") do io
         println(io, "# CertifiedHomotopyTracking.jl certified variety boxes")
@@ -554,6 +690,33 @@ export_variety_obj(approx::VarietyApproximation, filename::AbstractString) =
 export_variety_obj(box::VarietyBox, filename::AbstractString) =
     export_variety_obj([box], filename)
 
+"""
+    variety_system(F_eqs, x_vars; CCRing=AcbField(256), projective=false) -> AlgebraicVarietySystem
+
+Compile symbolic equations as a static algebraic variety system.
+
+Complex numeric coefficients are supported and are internally parameterized as
+fixed constants.
+
+# Options
+
+- `CCRing=AcbField(256)`: ACB field used by the underlying system.
+- `projective=false`: compile a projective/homogeneous version.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+CC = AcbField(128);
+@variables x y z;
+surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);
+
+p = [CC(1), CC(0), CC(0)];
+evaluate_system(surface, p)
+jacobian_system(surface, p)
+```
+"""
 function variety_system(
     F_eqs::AbstractVector{<:Union{Num, Complex{Num}}},
     x_vars::AbstractVector{Num};
@@ -575,6 +738,6 @@ function variety_system(
         const_vars=coeff_vars,
     )
     coeff_vals = [_coefficient_value(CCRing, coeff) for coeff in coeff_values]
-    sys = isempty(coeff_vals) ? HCSystem(compiled, CCRing) : HCSystem(compiled, AcbFieldElem[], AcbFieldElem[], coeff_vals)
+    sys = isempty(coeff_vals) ? SpecializedHomotopy(compiled, CCRing) : SpecializedHomotopy(compiled, AcbFieldElem[], AcbFieldElem[], coeff_vals)
     return AlgebraicVarietySystem(sys)
 end

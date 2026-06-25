@@ -16,7 +16,7 @@ res = track_path(H, start_point)
 sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
 
-cert = certify_path_a_posteriori(H, start_point; show_progress=true, diagnostics=:basic)
+cert = certify_posteriori(H, start_point; show_progress=true, diagnostics=:basic)
 cert.success
 cert.total_boxes
 cert.max_depth
@@ -119,7 +119,7 @@ sol = certified_region(res)
 evaluate_H(H, certified_region(res), CC(1))
 
 
-cert = certify_path_a_posteriori(H, point; show_progress=true)
+cert = certify_posteriori(H, point; show_progress=true)
 cert.success
 cert.total_boxes
 cert.max_depth
@@ -165,7 +165,7 @@ evaluate_H(H, certified_region(res), CC(1))
 
 
 
-cert = certify_path_a_posteriori(H, point; show_progress=true)
+cert = certify_posteriori(H, point; show_progress=true)
 cert.success
 cert.total_boxes
 cert.max_depth
@@ -215,7 +215,7 @@ H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 rough_point = [CC(1.05), CC(0.95)]
 res = track_path(H_projective, rough_point; h_init=0.05)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 
@@ -245,7 +245,7 @@ H_projective = straight_line_homotopy(F, G, [x, y, z]; CCRing=CC, projective=tru
 point = [CC(1), CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 projective_solution(res)
@@ -281,7 +281,7 @@ point = [CC(1), CC(-1), CC(-1), CC(-1), CC(-1)]
 res_affine = track_path(H_affine, point)
 res_projective = track_path(H_projective, point)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 projective_solution(res)
@@ -305,7 +305,7 @@ H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 point = [CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 evaluate_H(H_projective, projective_solution(res), CC(1))
@@ -334,7 +334,7 @@ H_projective = straight_line_homotopy(F, G, [x, y]; CCRing=CC, projective=true)
 point = [CC(1), CC(1)]
 res = track_path(H_projective, point; h_init=0.05)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 
@@ -362,9 +362,8 @@ point = [CC(1), CC(-1), CC(1), CC(-1)]
 res = track_path(H_affine, point; h_init=0.05)
 res = track_path(H_projective, point; h_init=0.05)
 
-succeeded(res)
+success(res)
 res.status
 solution(res)
 projective_solution(res)
-
 
