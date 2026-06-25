@@ -272,6 +272,11 @@ function _track_path_at_precision(
     request_precision_retry=false,
     precision_rejection_threshold=8,
     initial_precision=precision(sys.CC),
+    store_boxes=:summary,
+    visualize=false,
+    visualization_filename=nothing,
+    visualization_axes=nothing,
+    visualize_options=(;),
 )
     CC = sys.CC; RR = sys.RR
     t = RR(t_start)
@@ -283,6 +288,8 @@ function _track_path_at_precision(
     rejected_steps = 0
     last_k_norm = Inf
     user_input_start = copy(x_start_input)
+    keep_boxes = visualize !== false || store_boxes === :full
+    tracking_boxes = PathBox[]
 
     patch_vector === nothing || throw(ArgumentError("patch_vector is no longer supported; projective tracking uses coordinate charts."))
     if projective && !uses_projective_charts(sys)
@@ -326,6 +333,7 @@ function _track_path_at_precision(
     A = compute_preconditioner(sys, x, t)
     x, r, A, success = refine_moore_box(sys, x, t, r, A)
     tracking_refined_start = copy(x)
+    keep_boxes && push!(tracking_boxes, _tracking_path_box(sys, x, t, r, :initial_refinement; iteration=iter))
     if !success
         return _track_result(
             sys,
@@ -347,6 +355,7 @@ function _track_path_at_precision(
             tracking_refined_start=tracking_refined_start,
             tracking_start_patch_idx=tracking_start_patch_idx,
             initial_precision=initial_precision,
+            boxes=Any[tracking_boxes...],
         )
     end
 
@@ -388,6 +397,7 @@ function _track_path_at_precision(
         end
 
         x, r, A, success = refine_moore_box(sys, x, t, r, A)
+        keep_boxes && push!(tracking_boxes, _tracking_path_box(sys, x, t, r, :refinement; iteration=iter))
         if !success
             return _track_result(
                 sys,
@@ -409,6 +419,7 @@ function _track_path_at_precision(
                 tracking_refined_start=tracking_refined_start,
                 tracking_start_patch_idx=tracking_start_patch_idx,
                 initial_precision=initial_precision,
+                boxes=Any[tracking_boxes...],
             )
         end
 
@@ -435,9 +446,12 @@ function _track_path_at_precision(
                 for i in eachindex(X_tm)
                     evaluate_taylor!(x_next_interval[i], X_tm[i], tm_cache)
                 end
+                x_step_bound = sys.CC.(x_next_interval)
                 x_new = get_mid_vec(x_next_interval)
+                t_old = t
                 x_prev = x; v_prev = v; h_prev = h
                 x = x_new; t += h
+                keep_boxes && push!(tracking_boxes, _tracking_tube_path_box(sys, x_step_bound, t_old, t, r, :accepted_step; iteration=iter, step_size=Float64(h)))
 
                 if uses_projective_charts(sys)
                     chart_idx = _canonical_projective_chart(sys, x)
@@ -490,6 +504,7 @@ function _track_path_at_precision(
                         tracking_refined_start=tracking_refined_start,
                         tracking_start_patch_idx=tracking_start_patch_idx,
                         initial_precision=initial_precision,
+                        boxes=Any[tracking_boxes...],
                     )
                 end
             end
@@ -517,6 +532,7 @@ function _track_path_at_precision(
                 tracking_refined_start=tracking_refined_start,
                 tracking_start_patch_idx=tracking_start_patch_idx,
                 initial_precision=initial_precision,
+                boxes=Any[tracking_boxes...],
             )
         end
     end
@@ -548,6 +564,7 @@ function _track_path_at_precision(
             if success_polish
                 x = x_polished
                 r = r_polished
+                keep_boxes && push!(tracking_boxes, _tracking_path_box(sys, x, t_target, r, :final_refinement; iteration=iter))
             else
                 final_status = :final_refinement_failed
                 final_message = "Path reached target, but final polishing failed."
@@ -564,6 +581,7 @@ function _track_path_at_precision(
         if success_polish
             x = x_polished
             r = r_polished
+            keep_boxes && push!(tracking_boxes, _tracking_path_box(sys, x, t_target, r, :final_refinement; iteration=iter))
         else
             final_status = :final_refinement_failed
             final_message = "Path reached target, but final polishing failed."
@@ -584,12 +602,13 @@ function _track_path_at_precision(
                 if success_polish
                     x = x_polished
                     r = r_polished
+                    keep_boxes && push!(tracking_boxes, _tracking_path_box(sys, x, t_target, r, :final_refinement; iteration=iter))
                 end
             end
         end
     end
 
-    return _track_result(
+    result = _track_result(
         sys,
         x,
         final_success,
@@ -609,7 +628,46 @@ function _track_path_at_precision(
         tracking_refined_start=tracking_refined_start,
         tracking_start_patch_idx=tracking_start_patch_idx,
         initial_precision=initial_precision,
+        boxes=Any[tracking_boxes...],
     )
+    if visualize !== false
+        viz_axes = _visualization_axes(visualize, visualization_axes, visualize_options)
+        viz = PathVisualization(tracking_boxes, _normalize_path_axes(viz_axes), :track_path, (; result_status = result.status))
+        _maybe_export_path_visualization(
+            viz,
+            visualize,
+            visualization_filename;
+            axes=visualization_axes,
+            visualize_options=visualize_options,
+        )
+    end
+    return result
+end
+
+function _tracking_path_box(sys::HCSystem, x, t, r, stage::Symbol; t_start=nothing, t_end=nothing, metadata...)
+    unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
+    x_box = [xi + unit * sys.CC(r) for xi in x]
+    t_box = if t_start === nothing || t_end === nothing
+        sys.CC(t, sys.RR(0))
+    else
+        lo = Float64(t_start)
+        hi = Float64(t_end)
+        mid = (lo + hi) / 2
+        rad = abs(hi - lo) / 2
+        sys.CC(sys.RR("$mid +/- $rad"), sys.RR(0))
+    end
+    return PathBox(t_box, x_box, :track_path, (; stage = stage, metadata...))
+end
+
+function _tracking_tube_path_box(sys::HCSystem, x_bound, t_start, t_end, r, stage::Symbol; metadata...)
+    unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
+    x_box = [xi + unit * sys.CC(r) for xi in x_bound]
+    lo = Float64(t_start)
+    hi = Float64(t_end)
+    mid = (lo + hi) / 2
+    rad = abs(hi - lo) / 2
+    t_box = sys.CC(sys.RR("$mid +/- $rad"), sys.RR(0))
+    return PathBox(t_box, x_box, :track_path, (; stage = stage, metadata...))
 end
 
 function track_path(

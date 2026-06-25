@@ -1,6 +1,6 @@
 export TrackResult, solution, certified_region, approximate_solution, succeeded,
     projective_solution, near_infinity, input_start, refined_start,
-    projective_input_start, projective_refined_start
+    projective_input_start, projective_refined_start, path_boxes
 
 struct TrackResult
     root::Vector{AcbFieldElem}
@@ -24,6 +24,7 @@ struct TrackResult
     initial_precision::Int
     final_precision::Int
     message::String
+    boxes::Vector{Any}
 end
 
 TrackResult(
@@ -62,6 +63,7 @@ TrackResult(
     0,
     0,
     message,
+    Any[],
 )
 
 certified_region(res::TrackResult) = res.root
@@ -73,6 +75,7 @@ input_start(res::TrackResult) = res.input_start
 refined_start(res::TrackResult) = res.refined_start
 projective_input_start(res::TrackResult) = res.projective_input_start
 projective_refined_start(res::TrackResult) = res.projective_refined_start
+path_boxes(res::TrackResult) = res.boxes
 
 function approximate_solution(res::TrackResult; digits=8)
     return [round(z; digits=digits) for z in solution(res)]
@@ -132,6 +135,7 @@ function _result_with_field(res::TrackResult, CC::AcbField)
         res.initial_precision,
         res.final_precision,
         res.message,
+        Any[_path_box_with_field(box, CC) for box in res.boxes],
     )
 end
 
@@ -191,6 +195,7 @@ function _track_result(
     tracking_refined_start=AcbFieldElem[],
     tracking_start_patch_idx=sys.patch_idx,
     initial_precision=precision(sys.CC),
+    boxes=Any[],
 )
     root = copy(x)
     projective_root = AcbFieldElem[]
@@ -246,5 +251,6 @@ function _track_result(
         initial_precision,
         precision(sys.CC),
         result_message,
+        boxes,
     )
 end

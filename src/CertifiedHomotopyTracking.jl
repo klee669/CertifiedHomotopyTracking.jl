@@ -21,6 +21,7 @@ export compile_system, AlgebraicVarietySystem, VarietyFrame, VarietyBox,
        variety_system, system, evaluate_system, jacobian_system,
        local_tangent_normal_frame,
        certified_variety_approximation, export_variety_obj
+export PathBox, PathVisualization, path_boxes, export_path_tikz, export_path_obj
 
 # Source Code Include
 
@@ -42,6 +43,7 @@ include("internals/homogenize.jl")
 # [Core] -- main functionalities
 include("poly_setup.jl")
 include("homotopy.jl")
+include("visualization.jl")
 include("results.jl")
 include("tracking.jl")    
 include("monodromy.jl")   
