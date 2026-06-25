@@ -11,8 +11,8 @@ makedocs(
         "Home" => "index.md",
         "Homotopies and Systems" => "homotopies-and-systems.md",
         "Krawczyk Test" => "krawczyk-test.md",
-        "A Posteriori Certification" => [
-            "Certification" => "posteriori/certification.md",
+        "A Posteriori Path Certification" => [
+            "A Posteriori Certification" => "posteriori/certification.md",
             "Numerical Trace" => "posteriori/low-level.md",
             "Visualization" => "posteriori/visualization.md",
         ],
