@@ -1,5 +1,4 @@
-export krawczyk_operator, krawczyk_test, compute_preconditioner, validate_step_taylor3,
-       validate_step_taylor3_diagnostics
+export krawczyk_operator, krawczyk_test, compute_preconditioner
 
 mutable struct KrawczykValidationCache
     tm_cache::TMCache
@@ -49,7 +48,7 @@ function KrawczykValidationCache(CC::AcbField, RR::ArbField, n::Integer)
     )
 end
 
-function _validation_cache(sys::HCSystem, n::Integer, cache)
+function _validation_cache(sys::SpecializedHomotopy, n::Integer, cache)
     if cache === nothing
         return KrawczykValidationCache(sys.CC, sys.RR, n)
     end
@@ -59,6 +58,14 @@ end
 
 
 ####### functions for Krawczyk test
+"""
+    krawczyk_operator(system, point, r, A)
+
+Compute the legacy polynomial-ring Krawczyk operator for `system` at `point`
+with radius `r` and preconditioner `A`.
+
+For current [`SpecializedHomotopy`](@ref)-based code, use [`krawczyk_test`](@ref) instead.
+"""
 function krawczyk_operator(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 
     point::Vector{AcbFieldElem}, 
@@ -85,8 +92,16 @@ function krawczyk_operator(
 end
 
 
-# Krawczyk test function.
-# checking if the norm of the Krawczyk operator is smaller than rho.
+"""
+    krawczyk_test(system, point, r, A, rho)
+    krawczyk_test(sys::SpecializedHomotopy, x, t, r; rho=0.7)
+    krawczyk_test(sys::SpecializedHomotopy, x, t, r, A; rho=0.7)
+
+Run a Krawczyk inclusion/contraction test.
+
+For `SpecializedHomotopy` inputs, returns `(passed, k_norm)`. For the legacy
+polynomial-ring method, returns a boolean.
+"""
 function krawczyk_test(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 
     point::Vector{AcbFieldElem}, 
@@ -99,7 +114,13 @@ function krawczyk_test(
 end
 
 
-function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t)
+"""
+    compute_preconditioner(sys::SpecializedHomotopy, x, t)
+
+Evaluate the Jacobian at the midpoint of `(x, t)` and return its inverse as the
+preconditioner used by Krawczyk tests.
+"""
+function compute_preconditioner(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t)
     CC = sys.CC
     x_mid = get_mid_vec(x)
     t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
@@ -107,12 +128,12 @@ function compute_preconditioner(sys::HCSystem, x::AbstractVector{AcbFieldElem}, 
     return inv_acb(J_val)
 end
 
-function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r; rho=0.7)
+function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r; rho=0.7)
     A = compute_preconditioner(sys, x, t)
     return krawczyk_test(sys, x, t, r, A; rho=rho)
 end
 
-function krawczyk_test(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
+function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
     CC = sys.CC; RR = sys.RR
     n = length(x)
 
@@ -154,8 +175,19 @@ function _profiled_validation_step(f, profile_validation::Bool)
     end
 end
 
+"""
+    validate_step_taylor3_diagnostics(sys, X_tm, t_start, h, r, A; kwargs...)
+
+Validate one Taylor-model predictor step and return diagnostic data.
+
+Options include:
+
+- `rho=0.7`: Krawczyk threshold.
+- `cache=nothing`: optional `KrawczykValidationCache`-compatible cache.
+- `profile_validation=false`: include timing information when enabled.
+"""
 function validate_step_taylor3_diagnostics(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     X_tm::Vector{<:TaylorModel3},
     t_start,
     h,
@@ -265,7 +297,12 @@ function validate_step_taylor3_diagnostics(
     )
 end
 
-function validate_step_taylor3(sys::HCSystem, X_tm::Vector{<:TaylorModel3}, t_start, h, r, A; rho=0.7, cache=nothing)
+"""
+    validate_step_taylor3(sys, X_tm, t_start, h, r, A; rho=0.7, cache=nothing)
+
+Return `(passed, k_norm)` for one Taylor-model path-tracking step.
+"""
+function validate_step_taylor3(sys::SpecializedHomotopy, X_tm::Vector{<:TaylorModel3}, t_start, h, r, A; rho=0.7, cache=nothing)
     diagnostic = validate_step_taylor3_diagnostics(
         sys,
         X_tm,

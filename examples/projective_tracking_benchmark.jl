@@ -228,7 +228,7 @@ function track_edge_diagnostic!(
         metrics.accepted_steps += result.accepted_steps
         metrics.rejected_steps += result.rejected_steps
 
-        if succeeded(result)
+        if success(result)
             metrics.successes += 1
             tracked_root = certified_region(result)
             if !isempty(projective_solution(result)) && metrics.mode == "projective"
@@ -238,12 +238,12 @@ function track_edge_diagnostic!(
             end
 
             dest_idx = if root_match == :heuristic
-                search_point(tracked_root, target_v.sols)
+                CertifiedHomotopyTracking.search_point(tracked_root, target_v.sols)
             elseif root_match == :certified
-                search_point_certified(sys_edge, tracked_root, target_v.sols)
+                CertifiedHomotopyTracking.search_point_certified(sys_edge, tracked_root, target_v.sols)
             elseif root_match == :certified_or_heuristic
-                idx = search_point_certified(sys_edge, tracked_root, target_v.sols)
-                idx === nothing ? search_point(tracked_root, target_v.sols) : idx
+                idx = CertifiedHomotopyTracking.search_point_certified(sys_edge, tracked_root, target_v.sols)
+                idx === nothing ? CertifiedHomotopyTracking.search_point(tracked_root, target_v.sols) : idx
             else
                 error("Unknown root_match=$root_match")
             end

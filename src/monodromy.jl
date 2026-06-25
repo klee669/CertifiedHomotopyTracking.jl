@@ -2,20 +2,47 @@
 # High-Level Interface
 # ------------------------------------------------------------------------------
 # Exporting Vertex/Edge allows users to inspect results and build custom graphs
-export solve_monodromy, build_gap_group, vertex, edge, parameter_points, galois_width,
-    Edge, Vertex, MonodromyResult, search_point, search_point_certified, same_root_krawczyk, build_edges
+export solve_monodromy, build_gap_group, vertex, edge, galois_width,
+    Edge, Vertex, MonodromyResult, build_edges
 
 # ------------------------------------------------------------------------------
 # Data Structures
 # ------------------------------------------------------------------------------
 const PointType = Vector{AcbFieldElem} 
 
+"""
+    Vertex
+
+Node of a monodromy graph.
+
+Fields:
+
+- `base_point`: parameter value attached to the vertex.
+- `sols`: known solutions over `base_point`.
+- `Edges`: incident graph edges.
+
+Construct vertices with [`vertex`](@ref).
+"""
 mutable struct Vertex
     base_point::PointType
     sols::Vector{PointType}
     Edges::Vector{Any} # Type Any to avoid circular dependency
 end
 
+"""
+    Edge
+
+Undirected monodromy graph edge with tracked correspondences in both directions.
+
+Fields:
+
+- `node1`, `node2`: endpoint vertices.
+- `correspondence12`: pairs `(i, j)` mapping solution `i` at `node1` to solution
+  `j` at `node2`.
+- `correspondence21`: reverse correspondences.
+
+Construct edges with [`edge`](@ref) or [`build_edges`](@ref).
+"""
 mutable struct Edge
     node1::Vertex
     node2::Vertex
@@ -23,6 +50,22 @@ mutable struct Edge
     correspondence21::Vector{Tuple{Int, Int}}
 end
 
+"""
+    MonodromyResult
+
+Return object from [`solve_monodromy`](@ref).
+
+Fields:
+
+- `vertices`, `edges`: mutated graph containing discovered solutions and correspondences.
+- `success`: whether every edge reached `max_roots` correspondences.
+- `status`: `:success`, `:stagnant`, `:interrupted`, or `:partial`.
+- `iterations`, `stagnant_iterations`: solve-loop counters.
+- `max_roots`: target number of roots per edge.
+- `diagnostics`: optional a posteriori path diagnostics.
+
+`MonodromyResult` behaves like its `edges` vector for indexing and iteration.
+"""
 struct MonodromyResult
     vertices::Vector{Vertex}
     edges::Vector{Edge}
@@ -35,8 +78,23 @@ struct MonodromyResult
 end
 
 # Constructors
+"""
+    vertex(p)
+    vertex(p, solutions)
+
+Create a monodromy graph vertex at parameter point `p`.
+
+Use `vertex(p, [x0])` when one or more start solutions are already known.
+"""
 vertex(p::Vector) = Vertex(p, PointType[], [])
+
 vertex(p::Vector, x::Vector) = Vertex(p, x, [])
+
+"""
+    edge(v, w)
+
+Create an empty monodromy graph edge between vertices `v` and `w`.
+"""
 edge(p::Vertex, q::Vertex) = Edge(p, q, Tuple{Int,Int}[], Tuple{Int,Int}[])
 
 Base.show(io::IO, v::Vertex) = print(io, "Vertex($(length(v.sols)) solutions)")
@@ -50,6 +108,23 @@ Base.isempty(result::MonodromyResult) = isempty(result.edges)
 Base.getindex(result::MonodromyResult, i::Int) = result.edges[i]
 Base.iterate(result::MonodromyResult, state...) = iterate(result.edges, state...)
 
+"""
+    build_edges(vertices, edge_pairs) -> Vector{Edge}
+
+Create graph edges from pairs of vertex indices and register each edge with its
+endpoint vertices.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+CC = AcbField(128);
+vertices = [vertex([CC(i)]) for i in 1:3];
+edges = build_edges(vertices, [(1, 2), (2, 3), (3, 1)])
+length(edges)
+```
+"""
 function build_edges(vertices::Vector{Vertex}, edge_pairs::Vector{Tuple{Int, Int}})
     custom_edges = Edge[]
     for (i, j) in edge_pairs
@@ -62,6 +137,30 @@ function build_edges(vertices::Vector{Vertex}, edge_pairs::Vector{Tuple{Int, Int
 end
 
 
+"""
+    make_edge_system(compiled, p_start, p_end, p_const=AcbFieldElem[]) -> SpecializedHomotopy
+
+Specialize a [`CompiledHomotopy`](@ref), usually from
+[`compile_edge_homotopy`](@ref), to the linear parameter path from `p_start` to
+`p_end`.
+
+`p_const` supplies fixed constants declared through `const_vars` or introduced
+internally for complex numeric coefficients.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y p q;
+CC = AcbField(256);
+F = [p*x^2 + 3y - 4, y^2 + q];
+compiled = compile_edge_homotopy(F, [x, y], [p, q]);
+sys = make_edge_system(compiled, [CC(1), CC(-1)], [CC(cis(0.3)), CC(cis(0.7))]);
+res = track_path(sys, [CC(1), CC(1)])
+success(res)
+```
+"""
 function make_edge_system(
     compiled_sys::CompiledHomotopy,
     p_start::Vector{AcbFieldElem},
@@ -73,7 +172,7 @@ function make_edge_system(
     return SpecializedHomotopy(compiled_sys, p_start, p_end, p_const; patch_vector=patch_vector, source=source)
 end
 
-function _posteriori_endpoint(sys_edge::HCSystem, cert)
+function _posteriori_endpoint(sys_edge::SpecializedHomotopy, cert)
     if haskey(cert, :affine_endpoint)
         return sys_edge.CC.(cert.affine_endpoint), true
     end
@@ -159,7 +258,7 @@ function _posteriori_diagnostics_requested(posteriori::Bool, posteriori_options:
 end
 
 function _track_compiled_edge_path(
-    sys_edge::HCSystem,
+    sys_edge::SpecializedHomotopy,
     start_point;
     posteriori::Bool,
     posteriori_options::NamedTuple,
@@ -170,7 +269,7 @@ function _track_compiled_edge_path(
         options = haskey(posteriori_options, :show_progress) ?
             posteriori_options :
             merge((; show_progress = show_progress), posteriori_options)
-        cert = certify_path_a_posteriori(
+        cert = certify_posteriori(
             sys_edge,
             ComplexF64.(start_point);
             options...,
@@ -197,11 +296,58 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    solve_monodromy(H, vertices; radius=0.1, max_roots=20, predictor=true, show_progress=true)
+    solve_monodromy(compiled, vertices[, edges]; kwargs...) -> MonodromyResult
 
-Tracks the complete graph to find the monodromy group.
-Handles InterruptException (Ctrl+C) gracefully to return partial results.
-Updates the `vertices` and edges in-place.
+Track a monodromy graph and discover solution correspondences.
+
+The current Symbolics-based workflow uses a [`CompiledHomotopy`](@ref) from
+[`compile_edge_homotopy`](@ref). If `edges` are omitted, a complete graph is
+built on `vertices`. If `edges` are supplied, the custom graph is tracked.
+
+# Options for the compiled workflow
+
+- `max_roots=20`: target number of correspondences per edge.
+- `max_attempts=10`: stop after this many stagnant iterations.
+- `show_progress=false`: print path-tracking progress.
+- `root_match=:certified_or_heuristic`: root matching mode used when deciding whether a
+  tracked endpoint is already present in the target vertex. Supported values are
+  `:heuristic`, `:certified`, and `:certified_or_heuristic`.
+- `projective=false`: track in projective charts. Requires `compiled` to be
+  built with `projective=true`.
+- `track_options=(;)`: keyword options forwarded to [`track_path`](@ref), for
+  example `(; adaptive_precision=false, h_init=0.05)`.
+- `posteriori=false`: additionally certify paths with
+  [`certify_posteriori`](@ref).
+- `posteriori_options=(;)`: options forwarded to a posteriori certification.
+- `return_result=true`: return a [`MonodromyResult`](@ref); set to `false` for
+  the legacy `Vector{Edge}` return value.
+- `threading=false`, `ntasks=Threads.nthreads()`: track independent paths in
+  parallel when enabled.
+
+The graph is mutated in-place. Interrupting with Ctrl-C returns partial data.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y p q;
+CC = AcbField(256);
+F = [p*x^2 + 3y - 4, y^2 + q];
+compiled = compile_edge_homotopy(F, [x, y], [p, q]);
+
+v1 = vertex([CC(1), CC(-1)], [[CC(1), CC(1)]]);
+vertices = [v1; [vertex([CC(cis(0.2k)), CC(cis(0.3k))]) for k in 1:3]];
+
+# Omitting edges uses the complete graph on vertices.
+result = solve_monodromy(compiled, vertices; max_roots=4)
+length(result.edges)
+
+# Or provide a custom graph explicitly.
+vertices = [v1; [vertex([CC(cis(0.2k)), CC(cis(0.3k))]) for k in 1:5]];
+edges = build_edges(vertices, [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1)])
+length(edges)
+```
 """
 function solve_monodromy(
     H::Union{Matrix,Vector},
@@ -391,7 +537,7 @@ function track_edge!(
     id_src::Int,
     id_dest::Int;
     show_progress::Bool=false,
-    root_match::Symbol=:heuristic,
+    root_match::Symbol=:certified_or_heuristic,
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
     posteriori_options::NamedTuple=(;),
@@ -538,7 +684,7 @@ end
 
 function _track_edge_paths_threaded!(
     compiled_sys::CompiledHomotopy,
-    sys_edge::HCSystem,
+    sys_edge::SpecializedHomotopy,
     source_sols,
     target_sols,
     c_forward,
@@ -656,7 +802,7 @@ function solve_monodromy(
     max_roots=20,
     max_attempts::Int=10,
     show_progress::Bool=false,
-    root_match::Symbol=:heuristic,
+    root_match::Symbol=:certified_or_heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
@@ -794,7 +940,7 @@ function solve_monodromy(
     max_roots=20,
     max_attempts::Int=10,
     show_progress::Bool=false,
-    root_match::Symbol=:heuristic,
+    root_match::Symbol=:certified_or_heuristic,
     projective::Bool=false,
     track_options::NamedTuple=(;),
     posteriori::Bool=false,
@@ -837,10 +983,11 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    build_gap_group(max_roots, edges)
+    build_gap_group(max_roots, edges_or_result)
 
-Constructs a GAP permutation group directly from the tracking results.
-Returns a GAP Group object.
+Construct a GAP permutation group from monodromy edge correspondences.
+
+Returns `nothing` if no valid permutations are available.
 """
 function build_gap_group(max_roots::Int, edges::Vector{Edge})
     perms_vec = get_permutations(max_roots, edges)
@@ -863,10 +1010,9 @@ build_gap_group(max_roots::Int, result::MonodromyResult) =
     build_gap_group(max_roots, result.edges)
 
 """
-    galois_width(G)
+    galois_width(G::GAP.GapObj)
 
-Calculates the Galois Width of the GAP group G using GAP.
-Defines the function in GAP unconditionally to avoid scope issues.
+Calculate the Galois width of a GAP group using a GAP helper function.
 """
 function galois_width(G::GAP.GapObj)
     # Define the function in GAP (unconditional definition)
@@ -910,6 +1056,12 @@ end
 # Helper Functions
 # ------------------------------------------------------------------------------
 
+"""
+    search_point(res, pool; tol=1e-4)
+
+Heuristically find `res` in `pool` by comparing the max norm of interval-ball
+differences to `tol`. Returns the matching index or `nothing`.
+"""
 function search_point(res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldElem}}; tol=1e-4)
     for (idx, sol) in enumerate(pool)
         dist = maximum(mag_complex.(res .- sol))
@@ -920,7 +1072,7 @@ function search_point(res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldEle
     return nothing
 end
 
-function _tracking_coordinates(sys::HCSystem, x::Vector{AcbFieldElem})
+function _tracking_coordinates(sys::SpecializedHomotopy, x::Vector{AcbFieldElem})
     if uses_projective_charts(sys)
         if length(x) == sys.compiled.n_vars - 1
             return copy(x)
@@ -952,29 +1104,37 @@ function _enclosing_radius_about(center::Vector{AcbFieldElem}, xs::Vector{AcbFie
     return r
 end
 
-function _krawczyk_same_on_hull(sys::HCSystem, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
+function _krawczyk_same_on_hull(sys::SpecializedHomotopy, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
     center, radius = _enclosing_center_radius(x, y; inflate=inflate, min_radius=min_radius)
     A = compute_preconditioner(sys, center, t)
     passed, k_norm = krawczyk_test(sys, center, t, radius, A; rho=rho)
     return passed, k_norm, radius
 end
 
-function _krawczyk_same_at_center(sys::HCSystem, center::Vector{AcbFieldElem}, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
+function _krawczyk_same_at_center(sys::SpecializedHomotopy, center::Vector{AcbFieldElem}, x::Vector{AcbFieldElem}, y::Vector{AcbFieldElem}, t; rho, inflate, min_radius)
     radius = _enclosing_radius_about(center, x, y; inflate=inflate, min_radius=min_radius)
     A = compute_preconditioner(sys, center, t)
     passed, k_norm = krawczyk_test(sys, center, t, radius, A; rho=rho)
     return passed, k_norm, radius
 end
 
-function _polish_for_root_comparison(sys::HCSystem, x::Vector{AcbFieldElem}, t; radius=1e-8)
+function _polish_for_root_comparison(sys::SpecializedHomotopy, x::Vector{AcbFieldElem}, t; radius=1e-8)
     center = get_mid_vec(x)
     A = compute_preconditioner(sys, center, t)
     polished, _, _, success = refine_moore_box(sys, center, t, radius, A)
     return success ? get_mid_vec(polished) : center, success
 end
 
+"""
+    same_root_krawczyk(sys, x, y; t=1.0, rho=0.7, inflate=1.1, min_radius=1e-12)
+
+Try to certify that `x` and `y` represent the same root of `sys` at parameter
+value `t`.
+
+Returns `(status, k_norm, radius)` where `status` is `:same` or `:unknown`.
+"""
 function same_root_krawczyk(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x::Vector{AcbFieldElem},
     y::Vector{AcbFieldElem};
     t=1.0,
@@ -1016,8 +1176,17 @@ function same_root_krawczyk(
     end
 end
 
+"""
+    search_point_certified(sys, res, pool; t=1.0, rho=0.7, inflate=1.1, min_radius=1e-12)
+
+Search for `res` in `pool` using [`same_root_krawczyk`](@ref). Returns the
+matching index or `nothing`.
+
+This is the pool-search wrapper around [`same_root_krawczyk`](@ref): it tests
+`res` against each candidate and returns the first certified match.
+"""
 function search_point_certified(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     res::Vector{AcbFieldElem},
     pool::Vector{Vector{AcbFieldElem}};
     t=1.0,
@@ -1032,7 +1201,7 @@ function search_point_certified(
     return nothing
 end
 
-function _search_solution(sys::HCSystem, res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldElem}}; root_match::Symbol=:heuristic)
+function _search_solution(sys::SpecializedHomotopy, res::Vector{AcbFieldElem}, pool::Vector{Vector{AcbFieldElem}}; root_match::Symbol=:certified_or_heuristic)
     if root_match == :heuristic
         return search_point(res, pool)
     elseif root_match == :certified

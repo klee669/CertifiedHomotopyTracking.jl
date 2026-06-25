@@ -120,11 +120,11 @@ _record_yz_max!(::Nothing, Y, Z, Y_over_r) = nothing
 # converting HC.jl trace points to the format needed for CHT.jl certification
 # converting number types
 # reverting t values from [1,0] back to [0,1]
-function _trace_point_for_cht(sys::HCSystem, point; time_map)
+function _trace_point_for_cht(sys::SpecializedHomotopy, point; time_map)
     return (t = Float64(time_map(point.t)), x = sys.CC.(point.x))
 end
 
-function _prepare_trace_points(sys::HCSystem, trace; time_map)
+function _prepare_trace_points(sys::SpecializedHomotopy, trace; time_map)
     points = [_trace_point_for_cht(sys, point; time_map = time_map) for point in trace]
     length(points) >= 2 || throw(ArgumentError("trace must contain at least two points."))
 
@@ -139,18 +139,18 @@ function _prepare_trace_points(sys::HCSystem, trace; time_map)
     return points
 end
 
-function _compute_preconditioner_counted(sys::HCSystem, x, t, diagnostics)
+function _compute_preconditioner_counted(sys::SpecializedHomotopy, x, t, diagnostics)
     _diag_basic(diagnostics) && (diagnostics.preconditioner_computations += 1)
     return compute_preconditioner(sys, x, t)
 end
 
-function _compute_velocity_counted(sys::HCSystem, x, t, A, diagnostics)
+function _compute_velocity_counted(sys::SpecializedHomotopy, x, t, A, diagnostics)
     _diag_basic(diagnostics) && (diagnostics.velocity_computations += 1)
     return compute_velocity(sys, x, t, A)
 end
 
 function _certify_trace_node(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     point;
     node_refinement_radius,
     tau,
@@ -180,7 +180,7 @@ function _certify_trace_node(
 end
 
 function _prepare_certified_trace_nodes(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     points;
     node_refinement_radius,
     tau,
@@ -259,7 +259,7 @@ The supported certification mode is `:adaptive_local_parameter`.
 """
 function _certify_hc_path_a_posteriori(
     H_hc,
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x_start;
     time_map = identity,
     certification = :adaptive_local_parameter,
@@ -442,11 +442,11 @@ end
 
 _local_parameter_mid_float(a::AcbFieldElem) = Float64(Nemo.midpoint(real(a)))
 _local_parameter_mid_float(a) = Float64(Nemo.midpoint(a))
-_local_parameter_real_acb(sys::HCSystem, a) = sys.CC(a, sys.RR(0))
-_local_parameter_real_part(sys::HCSystem, z) = _local_parameter_real_acb(sys, real(z))
-_local_parameter_imag_part(sys::HCSystem, z) = _local_parameter_real_acb(sys, imag(z))
+_local_parameter_real_acb(sys::SpecializedHomotopy, a) = sys.CC(a, sys.RR(0))
+_local_parameter_real_part(sys::SpecializedHomotopy, z) = _local_parameter_real_acb(sys, real(z))
+_local_parameter_imag_part(sys::SpecializedHomotopy, z) = _local_parameter_real_acb(sys, imag(z))
 
-function _local_parameter_tm_part(sys::HCSystem, tm::TaylorModel3, part::Symbol)
+function _local_parameter_tm_part(sys::SpecializedHomotopy, tm::TaylorModel3, part::Symbol)
     f = part === :real ? real : imag
     return TaylorModel3(
         _local_parameter_real_acb(sys, f(tm.c0)),
@@ -458,7 +458,7 @@ function _local_parameter_tm_part(sys::HCSystem, tm::TaylorModel3, part::Symbol)
     )
 end
 
-function _local_parameter_real_rows(sys::HCSystem, Fval)
+function _local_parameter_real_rows(sys::SpecializedHomotopy, Fval)
     rows = Vector{AcbFieldElem}(undef, 2 * length(Fval))
     for i in eachindex(Fval)
         rows[2i - 1] = _local_parameter_real_part(sys, Fval[i])
@@ -467,7 +467,7 @@ function _local_parameter_real_rows(sys::HCSystem, Fval)
     return rows
 end
 
-function _local_parameter_real_rows_tm(sys::HCSystem, F_tm)
+function _local_parameter_real_rows_tm(sys::SpecializedHomotopy, F_tm)
     rows = Vector{TaylorModel3{AcbFieldElem,ArbFieldElem}}(undef, 2 * length(F_tm))
     for i in eachindex(F_tm)
         rows[2i - 1] = _local_parameter_tm_part(sys, F_tm[i], :real)
@@ -494,7 +494,7 @@ function _local_parameter_name(local_parameter_index, n)
     return Symbol("x$(var_idx)_$(part)")
 end
 
-function _local_parameter_name(sys::HCSystem, local_parameter_index, n)
+function _local_parameter_name(sys::SpecializedHomotopy, local_parameter_index, n)
     local_parameter_index == 2n + 1 && return :t
     source = sys.source === nothing ? sys.compiled.source : sys.source
     source === nothing && return _local_parameter_name(local_parameter_index, n)
@@ -505,7 +505,7 @@ function _local_parameter_name(sys::HCSystem, local_parameter_index, n)
     return Symbol(string(Symbol(vars[var_idx])), "_", part)
 end
 
-function _local_parameter_value(sys::HCSystem, x, t, local_parameter_index)
+function _local_parameter_value(sys::SpecializedHomotopy, x, t, local_parameter_index)
     n = length(x)
     local_parameter_index == 2n + 1 && return _local_parameter_real_part(sys, t)
     var_idx = (local_parameter_index + 1) ÷ 2
@@ -513,7 +513,7 @@ function _local_parameter_value(sys::HCSystem, x, t, local_parameter_index)
     return _local_parameter_imag_part(sys, x[var_idx])
 end
 
-function _local_parameter_unknown_endpoint(sys::HCSystem, x, t, local_parameter_index)
+function _local_parameter_unknown_endpoint(sys::SpecializedHomotopy, x, t, local_parameter_index)
     values = AcbFieldElem[]
     for i in eachindex(x)
         re = _local_parameter_real_part(sys, x[i])
@@ -525,7 +525,7 @@ function _local_parameter_unknown_endpoint(sys::HCSystem, x, t, local_parameter_
     return values
 end
 
-function _local_parameter_reconstruct_x_t(sys::HCSystem, u, local_parameter_index, local_parameter_value, n::Integer)
+function _local_parameter_reconstruct_x_t(sys::SpecializedHomotopy, u, local_parameter_index, local_parameter_value, n::Integer)
     coords = Vector{typeof(local_parameter_value)}(undef, 2n)
     k = 1
     if local_parameter_index == 2n + 1
@@ -550,7 +550,7 @@ function _local_parameter_reconstruct_x_t(sys::HCSystem, u, local_parameter_inde
     return x, t
 end
 
-function _local_parameter_candidates(sys::HCSystem, node0, node1; min_local_parameter_motion = 1e-14)
+function _local_parameter_candidates(sys::SpecializedHomotopy, node0, node1; min_local_parameter_motion = 1e-14)
     n = length(node0.x)
     candidates = NamedTuple[]
     for i in 1:n
@@ -591,7 +591,7 @@ function _local_parameter_real_bounds(value)
     return mid - rad, mid + rad
 end
 
-function _local_parameter_interval_hull(sys::HCSystem, a, b)
+function _local_parameter_interval_hull(sys::SpecializedHomotopy, a, b)
     a_low, a_high = _local_parameter_real_bounds(a)
     b_low, b_high = _local_parameter_real_bounds(b)
     low = min(a_low, b_low)
@@ -627,7 +627,7 @@ function _local_parameter_radius_to_cover(center, value)
     return max(abs(value_low - center_mid), abs(value_high - center_mid))
 end
 
-function _local_parameter_endpoint_box_radii(sys::HCSystem, u_mid, u0, u1, inflation)
+function _local_parameter_endpoint_box_radii(sys::SpecializedHomotopy, u_mid, u0, u1, inflation)
     return [
         max(
             _local_parameter_radius_to_cover(u_mid[i], u0[i]),
@@ -708,7 +708,7 @@ _trace_point_radius(point) = 0.0
 _trace_point_radius(point::CertifiedTraceNode) = point.radius
 _trace_point_radius(point::NamedTuple) = haskey(point, :radius) ? Float64(point.radius) : 0.0
 
-function _endpoint_enclosure_x(sys::HCSystem, point)
+function _endpoint_enclosure_x(sys::SpecializedHomotopy, point)
     radius = _trace_point_radius(point)
     radius <= 0 && return point.x
     unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
@@ -716,7 +716,7 @@ function _endpoint_enclosure_x(sys::HCSystem, point)
 end
 
 function _validate_local_parameter_endpoint_box_segment_once(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     p0,
     p1,
     local_parameter;
@@ -822,7 +822,7 @@ function _validate_local_parameter_endpoint_box_segment_once(
     return best
 end
 
-function _local_parameter_midpoint_point(sys::HCSystem, p0, p1; midpoint_policy, node_refinement_radius, tau)
+function _local_parameter_midpoint_point(sys::SpecializedHomotopy, p0, p1; midpoint_policy, node_refinement_radius, tau)
     t_mid = (p0.t + p1.t) / 2
     x_guess = (p0.x .+ p1.x) ./ sys.CC(2)
     if midpoint_policy === :krawczyk
@@ -845,7 +845,7 @@ end
 function _certify_local_parameter_endpoint_box_segment!(
     boxes,
     failures,
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     p0,
     p1;
     parent_index,
@@ -1021,7 +1021,7 @@ _local_parameter_variable_symbol(v) = Symbol(v)
 _local_parameter_variable_symbol(v::Symbol) = v
 _local_parameter_variable_symbol(v::AbstractString) = Symbol(v)
 
-function _selected_local_parameter_vars(sys::HCSystem, local_parameter_variables)
+function _selected_local_parameter_vars(sys::SpecializedHomotopy, local_parameter_variables)
     n = sys.compiled.n_vars == 0 ? length(sys.p_start) : sys.compiled.n_vars
     isempty(local_parameter_variables) && return Int[]
 
@@ -1063,7 +1063,7 @@ function _filter_local_parameter_candidates(candidates, variable_indices)
     return filter(c -> c.index in allowed || _is_t_local_parameter_candidate(c), candidates)
 end
 
-function _local_parameter_interval(sys::HCSystem, c0, c1)
+function _local_parameter_interval(sys::SpecializedHomotopy, c0, c1)
     a0 = _local_parameter_mid_float(c0)
     a1 = _local_parameter_mid_float(c1)
     mid = (a0 + a1) / 2
@@ -1071,7 +1071,7 @@ function _local_parameter_interval(sys::HCSystem, c0, c1)
     return sys.CC(sys.RR("$mid +/- $rad"), sys.RR(0))
 end
 
-function _local_parameter_jacobian(sys::HCSystem, u, local_parameter_index, local_parameter_value, n::Integer)
+function _local_parameter_jacobian(sys::SpecializedHomotopy, u, local_parameter_index, local_parameter_value, n::Integer)
     x, t = _local_parameter_reconstruct_x_t(sys, u, local_parameter_index, local_parameter_value, n)
     Jx = evaluate_Jac(sys, x, t)
     dt = evaluate_dt(sys, x, t)
@@ -1100,7 +1100,7 @@ function _local_parameter_jacobian(sys::HCSystem, u, local_parameter_index, loca
     return Jr
 end
 
-function _local_parameter_column(sys::HCSystem, x, t, local_parameter_index)
+function _local_parameter_column(sys::SpecializedHomotopy, x, t, local_parameter_index)
     n = length(x)
     col = Vector{AcbFieldElem}(undef, 2n)
     if local_parameter_index == 2n + 1
@@ -1127,7 +1127,7 @@ function _local_parameter_column(sys::HCSystem, x, t, local_parameter_index)
     return col
 end
 
-function _local_parameter_unknown_velocity(sys::HCSystem, node::CertifiedTraceNode, local_parameter_index)
+function _local_parameter_unknown_velocity(sys::SpecializedHomotopy, node::CertifiedTraceNode, local_parameter_index)
     n = length(node.x)
     u = _local_parameter_unknown_endpoint(sys, node.x, sys.CC(node.t), local_parameter_index)
     c = _local_parameter_value(sys, node.x, sys.CC(node.t), local_parameter_index)
@@ -1136,7 +1136,7 @@ function _local_parameter_unknown_velocity(sys::HCSystem, node::CertifiedTraceNo
     return -(inv_acb(Ju) * Js)
 end
 
-function _construct_local_parameter_hermite_tm(sys::HCSystem, u0, u1, du0, du1, c0, c1)
+function _construct_local_parameter_hermite_tm(sys::SpecializedHomotopy, u0, u1, du0, du1, c0, c1)
     CC = sys.CC
     RR = sys.RR
     h_cc = c1 - c0
@@ -1161,7 +1161,7 @@ function _construct_local_parameter_hermite_tm(sys::HCSystem, u0, u1, du0, du1, 
 end
 
 function _validate_local_parameter_segment_once(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     node0::CertifiedTraceNode,
     node1::CertifiedTraceNode,
     local_parameter;
@@ -1250,7 +1250,7 @@ end
 function _certify_local_parameter_segment!(
     boxes,
     failures,
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     node0::CertifiedTraceNode,
     node1::CertifiedTraceNode;
     parent_index,
@@ -1400,7 +1400,7 @@ function _certify_local_parameter_segment!(
 end
 
 function _certify_endpoint_box_segment_job(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     node0,
     node1;
     parent_index,
@@ -1448,7 +1448,7 @@ function _certify_endpoint_box_segment_job(
 end
 
 function _certify_hermite_segment_job(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     node0,
     node1;
     parent_index,
@@ -1522,7 +1522,7 @@ method uses cached endpoint refinement data and evaluates a Hermite predictor
 residual with `TaylorModel3`.
 """
 function certify_hc_trace_adaptive_local_parameter(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     trace;
     time_map = identity,
     rho = 7//8,

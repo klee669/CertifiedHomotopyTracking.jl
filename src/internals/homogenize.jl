@@ -1,5 +1,4 @@
-export homogenize_poly,
-    homogenize_expr,
+export homogenize_expr,
     homogenize_system,
     random_patch_vector,
     patch_equation,
@@ -127,6 +126,14 @@ function _homogenize_with_degree(expr::Complex, vars, h_var, degree::Integer)
     return Symbolics.expand(real_part + im * imag_part)
 end
 
+"""
+    homogenize_poly(expr, vars, u0_var)
+
+Homogenize one symbolic polynomial expression in variables `vars` using the
+homogenizing variable `u0_var`.
+
+This is used internally when compiling with `projective=true`.
+"""
 function homogenize_poly(expr, vars, u0_var)
     numerator = _rational_numerator(expr)
     degree = _assert_polynomial_and_total_degree(numerator, vars)

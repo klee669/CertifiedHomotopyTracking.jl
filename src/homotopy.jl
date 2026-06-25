@@ -1,4 +1,4 @@
-export straight_line_homotopy, linear_path, specified_system, max_degree
+export straight_line_homotopy, linear_path, max_degree
 
 # ------------------------------------------------------------------------------
 # Straight Line Homotopy
@@ -6,6 +6,44 @@ export straight_line_homotopy, linear_path, specified_system, max_degree
 
 _straight_line_field_value(CC, value) = value isa Complex ? CC(real(value), imag(value)) : CC(value)
 
+"""
+    straight_line_homotopy(F, G, x_vars; CCRing=AcbField(256), projective=false, gamma=nothing)
+    straight_line_homotopy(F, G, t; gamma=nothing)
+
+Construct the straight-line homotopy
+
+```math
+H(x,t) = (1 - t) \\gamma G(x) + t F(x).
+```
+
+It accepts vectors of symbolic expressions `F` and `G`
+and the variable vector `x_vars`. It compiles the homotopy and returns an
+[`SpecializedHomotopy`](@ref), suitable for [`track_path`](@ref).
+
+# Options
+
+- `CCRing=AcbField(256)`: complex ball field used for parameter values and tracking.
+- `projective=false`: homogenize and compile chart-based projective tracking.
+- `gamma=nothing`: gamma-trick scalar. If omitted, a random complex scalar is used.
+
+The lower-level polynomial-ring method `straight_line_homotopy(F, G, t)` returns
+the symbolic polynomial homotopy in the ring of `t`; it is kept for legacy code.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(256);
+F = [x^2 + 3y - 4, y^2 + 3];
+G = [x^2 - 1, y^2 - 1];
+
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(0.5, 0.5));
+res = track_path(H, [CC(1), CC(-1)]);
+solution(res)
+```
+"""
 function straight_line_homotopy(F, G, t; gamma=nothing)
     n = length(F)
     
@@ -68,6 +106,13 @@ end
 # ------------------------------------------------------------------------------
 # Max Degree Calculation
 # ------------------------------------------------------------------------------
+"""
+    max_degree(H::Matrix)
+
+Return the degree of each equation in a legacy polynomial-ring homotopy matrix.
+
+This helper is mainly used by the older `track` implementation.
+"""
 function max_degree(H::Matrix)
     HR = parent(H[1])       # R[t]
     R  = base_ring(HR)      # R
@@ -82,6 +127,15 @@ end
 # ------------------------------------------------------------------------------
 # Linear Path Construction
 # ------------------------------------------------------------------------------
+"""
+    linear_path(p0, p1, t)
+
+Return the coordinatewise linear path `(1 - t) * p0 + t * p1`.
+
+This is a low-level helper for the legacy polynomial-ring monodromy interface.
+For Symbolics-based monodromy use [`compile_edge_homotopy`](@ref) and
+[`make_edge_system`](@ref).
+"""
 function linear_path(p0, p1, t)
     n = length(p0)
     HR = parent(t)
@@ -95,6 +149,15 @@ end
 # ------------------------------------------------------------------------------
 # Specified System Construction
 # ------------------------------------------------------------------------------
+"""
+    specified_system(p0, p1, F)
+
+Specialize a legacy parameterized polynomial system along the linear parameter
+path from `p0` to `p1`.
+
+This function supports the old polynomial-ring monodromy path and is not needed
+for the current Symbolics-based workflow.
+"""
 function specified_system(p0, p1, F)
     
     HR = base_ring(F[1]) 

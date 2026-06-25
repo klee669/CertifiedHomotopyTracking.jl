@@ -1,7 +1,45 @@
-export TrackResult, solution, certified_region, approximate_solution, succeeded,
+export TrackResult, solution, certified_region, approximate_solution,
     projective_solution, near_infinity, input_start, refined_start,
     projective_input_start, projective_refined_start, path_boxes
 
+import Base: success
+
+"""
+    TrackResult
+
+Result object returned by [`track_path`](@ref).
+
+The most commonly used fields are:
+
+- `success::Bool`: whether the path was certified and finished in the requested affine chart.
+- `status::Symbol`: machine-readable status such as `:success`, `:step_too_small`,
+  `:near_infinity`, or `:final_refinement_failed`.
+- `root`: certified endpoint region in affine coordinates when possible.
+- `projective_root`: certified endpoint region in homogeneous coordinates for projective tracking.
+- `iterations`, `accepted_steps`, `rejected_steps`: path-tracking counters.
+- `final_t`, `final_h`, `final_radius`, `final_krawczyk_norm`: final tracking diagnostics.
+- `initial_precision`, `final_precision`: precision used by adaptive tracking.
+
+`TrackResult` also iterates as `(certified_region, success)` for compatibility
+with older code, but new code should prefer the named accessors.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(256);
+F = [x^2 + 3y - 4, y^2 + 3];
+G = [x^2 - 1, y^2 - 1];
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC);
+
+res = track_path(H, [CC(1), CC(-1)]);
+success(res)
+solution(res)
+certified_region(res)
+```
+"""
 struct TrackResult
     root::Vector{AcbFieldElem}
     projective_root::Vector{AcbFieldElem}
@@ -66,17 +104,98 @@ TrackResult(
     Any[],
 )
 
+"""
+    certified_region(res::TrackResult)
+
+Return the certified endpoint center stored in `res.root`.
+
+The certification radius is stored separately as `res.final_radius`; the entries
+returned here may have zero Arb/ACB radius. For projective tracking this is the
+endpoint converted back to the original affine chart when possible. If the path
+ends near infinity in that affine chart, inspect [`projective_solution`](@ref).
+"""
 certified_region(res::TrackResult) = res.root
+
+"""
+    solution(res::TrackResult)
+
+Return a `Vector{ComplexF64}` obtained from the midpoint of
+[`certified_region`](@ref). This is convenient for display and downstream
+numerical checks, but it is not itself an interval certificate.
+"""
 solution(res::TrackResult) = convert_to_double_int.(res.root)
-succeeded(res::TrackResult) = res.success
+
+"""
+    success(res::TrackResult)
+
+Return `res.success`.
+
+Use this before trusting the endpoint as a completed certified path. For failure
+diagnostics inspect `res.status`.
+"""
+success(res::TrackResult) = res.success
+
+"""
+    succeeded(res::TrackResult)
+
+Compatibility alias for [`success`](@ref).
+"""
+succeeded(res::TrackResult) = success(res)
+
+"""
+    projective_solution(res::TrackResult)
+
+Return the certified endpoint in projective coordinates when available.
+
+For affine tracking, or for old results without projective data, this falls back
+to `res.root`.
+"""
 projective_solution(res::TrackResult) = isempty(res.projective_root) ? res.root : res.projective_root
+
+"""
+    near_infinity(res::TrackResult)
+
+Return whether a projectively tracked endpoint is near infinity in the original
+affine chart.
+"""
 near_infinity(res::TrackResult) = res.near_infinity
+
+"""
+    input_start(res::TrackResult)
+
+Return the start point supplied by the user, converted to the tracker's field.
+"""
 input_start(res::TrackResult) = res.input_start
+
+"""
+    refined_start(res::TrackResult)
+
+Return the start point after initial certified Moore-box refinement.
+"""
 refined_start(res::TrackResult) = res.refined_start
+
+"""
+    projective_input_start(res::TrackResult)
+
+Return the user-supplied start point represented in projective coordinates when
+projective tracking is used.
+"""
 projective_input_start(res::TrackResult) = res.projective_input_start
+
+"""
+    projective_refined_start(res::TrackResult)
+
+Return the initially refined start point represented in projective coordinates
+when projective tracking is used.
+"""
 projective_refined_start(res::TrackResult) = res.projective_refined_start
 path_boxes(res::TrackResult) = res.boxes
 
+"""
+    approximate_solution(res::TrackResult; digits=8)
+
+Return `solution(res)` rounded to `digits` decimal digits.
+"""
 function approximate_solution(res::TrackResult; digits=8)
     return [round(z; digits=digits) for z in solution(res)]
 end
@@ -139,7 +258,7 @@ function _result_with_field(res::TrackResult, CC::AcbField)
     )
 end
 
-function _chart_solution_to_projective(sys::HCSystem, x; patch_idx::Int=sys.patch_idx)
+function _chart_solution_to_projective(sys::SpecializedHomotopy, x; patch_idx::Int=sys.patch_idx)
     X = Vector{eltype(x)}(undef, sys.compiled.n_vars)
     for i in eachindex(X)
         if i == patch_idx
@@ -153,7 +272,7 @@ function _chart_solution_to_projective(sys::HCSystem, x; patch_idx::Int=sys.patc
     return X
 end
 
-function _projective_to_affine(sys::HCSystem, x; affine_chart_atol=1e-10)
+function _projective_to_affine(sys::SpecializedHomotopy, x; affine_chart_atol=1e-10)
     X = uses_projective_charts(sys) ? _chart_solution_to_projective(sys, x) : x
     X0 = X[1]
     if mag_complex(X0) <= affine_chart_atol
@@ -167,7 +286,7 @@ function _projective_to_affine(sys::HCSystem, x; affine_chart_atol=1e-10)
     return affine, false
 end
 
-function _coordinates_for_result(sys::HCSystem, x; affine_chart_atol=1e-10)
+function _coordinates_for_result(sys::SpecializedHomotopy, x; affine_chart_atol=1e-10)
     if uses_projective_charts(sys) || has_projective_patch(sys)
         affine, is_near_infinity = _projective_to_affine(sys, x; affine_chart_atol=affine_chart_atol)
         return affine, is_near_infinity
@@ -176,7 +295,7 @@ function _coordinates_for_result(sys::HCSystem, x; affine_chart_atol=1e-10)
 end
 
 function _track_result(
-    sys::HCSystem,
+    sys::SpecializedHomotopy,
     x,
     success,
     status,

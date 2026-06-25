@@ -1,5 +1,3 @@
-export TaylorModel3, evaluate_taylor
-
 function _tm_real_interval(CC::AcbField, h::ArbFieldElem)
     RR = parent(h)
     upper = Nemo.midpoint(h) + Nemo.radius(h)
@@ -8,6 +6,15 @@ function _tm_real_interval(CC::AcbField, h::ArbFieldElem)
     return CC(real_interval, RR(0))
 end
 
+"""
+    TaylorModel3
+
+Third-order Taylor model with an interval remainder over a step interval `h`.
+
+Fields `c0`, `c1`, `c2`, `c3` store polynomial coefficients and `rem` stores an
+ACB remainder bound. This type is primarily used by certified Hermite predictor
+validation in [`track_path`](@ref).
+"""
 struct TaylorModel3{C,R}
     c0::C
     c1::C
@@ -64,6 +71,12 @@ function evaluate_taylor!(res::AcbFieldElem, tm::TaylorModel3, cache::TMCache)
     return res
 end
 
+"""
+    evaluate_taylor(tm::TaylorModel3)
+
+Evaluate a third-order Taylor model on its stored interval `h`, including the
+remainder bound.
+"""
 function evaluate_taylor(tm::TaylorModel3)
     CC = parent(tm.rem); RR = parent(tm.h)
     t_int = _tm_real_interval(CC, tm.h)

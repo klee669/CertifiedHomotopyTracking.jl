@@ -14,7 +14,7 @@ println("curve = ", curve)
 println("F_curve = ", F_curve)
 println("J_curve = ", J_curve)
 
-# You can still access the underlying HCSystem if you want the lower-level API.
+# You can still access the underlying SpecializedHomotopy if you want the lower-level API.
 sys_curve = system(curve)
 F_curve_low_level = evaluate_H(sys_curve, p_curve, CC(0))
 J_curve_low_level = evaluate_Jac(sys_curve, p_curve, CC(0))
@@ -43,7 +43,7 @@ println("F_complex = ", evaluate_system(complex_curve, p_complex))
 println("J_complex = ", jacobian_system(complex_curve, p_complex))
 
 # Example 4: local tangent-normal frame and one certified local box.
-frame = local_tangent_normal_frame(curve, p_curve)
+frame = CertifiedHomotopyTracking.local_tangent_normal_frame(curve, p_curve)
 println("curve rank = ", frame.rank)
 println("curve dimension = ", frame.dim)
 println("curve tangent frame = ", frame.tangent)

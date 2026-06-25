@@ -1,6 +1,7 @@
 
 
 using CertifiedHomotopyTracking
+const CHT = CertifiedHomotopyTracking
 
 @variables x 
 @variables h g τ
@@ -66,17 +67,17 @@ vertices = [v1]
 function _track_edge(F, p_start, p_target, x_start; posteriori = false, posteriori_options = (;), show_progress = true)
     sys = make_edge_system(F, p_start, p_target)
     if posteriori
-        cert = certify_path_a_posteriori(
+        cert = certify_posteriori(
             sys,
             x_start;
             show_progress = show_progress,
             posteriori_options...,
         )
-        return cert.success ? CC.(last(cert.hc_trace.trace).x) : nothing, cert
+        return cert.success ? certified_region(cert) : nothing, cert
     end
 
     result = track_path(sys, x_start; t_end = 1.0, h_init = 0.1, show_progress = show_progress)
-    return succeeded(result) ? certified_region(result) : nothing, result
+    return success(result) ? certified_region(result) : nothing, result
 end
 
 function track_loop(bp, a, b, x0, p_list, i, F; posteriori = false, posteriori_options = (;), show_progress = true)
@@ -117,7 +118,7 @@ function track_loop(bp, a, b, x0, p_list, i, F; posteriori = false, posteriori_o
     x3 === nothing && return nothing, nothing
 
     F3 = make_edge_system(F, b, bp)
-    ind = search_point_certified(F3, x3, p_list)
+    ind = CHT.search_point_certified(F3, x3, p_list)
     println("Result: Mapped to $ind")
     return x3, ind
 end
@@ -214,6 +215,4 @@ println("Group G defined.")
 println("Structure Description:")
 println(GAP.Globals.StructureDescription(G)) 
 galois_width(G)
-
-
 

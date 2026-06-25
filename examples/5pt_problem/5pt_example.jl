@@ -1,6 +1,7 @@
 #Pkg.instantiate()
 
 using CertifiedHomotopyTracking
+const CHT = CertifiedHomotopyTracking
 
 println("=== Running 5 Point Example ===")
 
@@ -8,7 +9,7 @@ println("=== Running 5 Point Example ===")
 # 1. Setup Polynomial Ring & System
 # ------------------------------------------------------------------------------
 # @setupfield to define variables and fields
-@monodromy_setup begin
+CHT.@monodromy_setup begin
     vars = (X,Y,Z)
     params = (x11,x21,x31,x41,x51,x12,x22,x32,x42,x52,y11,y21,y31,y41,y51,y12,y22,y32,y42,y52)
 end
@@ -29,7 +30,7 @@ x0 = p_list[1]
 v1 = vertex(bp, [x0])
 
 # construct parameter points (total 4 vertices, 20 points)
-vs = parameter_points(v1, 20, 4) 
+vs = CHT.parameter_points(v1, 20, 4) 
 
 
 # ------------------------------------------------------------------------------

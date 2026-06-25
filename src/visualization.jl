@@ -1,5 +1,17 @@
 export PathBox, PathVisualization, path_boxes, export_path_tikz, export_path_obj
 
+"""
+    PathBox
+
+One certified path box used for path visualization.
+
+Fields:
+
+- `t`: certified time interval.
+- `x`: certified coordinate boxes.
+- `source`: producer such as `:track_path` or `:posteriori`.
+- `metadata`: additional stage/certification metadata.
+"""
 struct PathBox
     t::AcbFieldElem
     x::Vector{AcbFieldElem}
@@ -7,6 +19,14 @@ struct PathBox
     metadata::NamedTuple
 end
 
+"""
+    PathVisualization
+
+Collection of [`PathBox`](@ref)s together with axis choices and metadata.
+
+Objects of this type can be exported with [`export_path_tikz`](@ref) or
+[`export_path_obj`](@ref).
+"""
 struct PathVisualization
     boxes::Vector{PathBox}
     axes::Tuple
@@ -257,8 +277,46 @@ function _as_path_boxes(input)
     throw(ArgumentError("expected PathVisualization, TrackResult, PosterioriPathResult, or a vector of PathBox objects."))
 end
 
+"""
+    path_boxes(input)
+
+Extract path visualization boxes from a [`PathVisualization`](@ref),
+[`TrackResult`](@ref), `PosterioriPathResult`, or a compatible object.
+
+For `track_path`, boxes are stored when `store_boxes=:full` or
+`visualize !== false`.
+"""
 path_boxes(input) = _as_path_boxes(input)
 
+"""
+    export_path_tikz(input, filename; kwargs...) -> filename
+
+Export path boxes to a TikZ file.
+
+`input` may be a [`PathVisualization`](@ref), [`TrackResult`](@ref),
+`PosterioriPathResult`, or a vector of [`PathBox`](@ref)s.
+
+# Options
+
+- `axes=nothing`: two or three axes. Axis entries may be `:t`, an integer
+  coordinate index, or `(i, :real)`, `(i, :imag)`, `(i, :abs)`.
+- `show_trace=false`: draw numerical trace points when available.
+
+# Example
+
+```julia
+using CertifiedHomotopyTracking;
+
+@variables x y;
+CC = AcbField(128);
+F = [x^2 + y - 2, y^2 + x - 2];
+G = [x^2 - 1, y^2 - 1];
+H = straight_line_homotopy(F, G, [x, y]; CCRing=CC, gamma=CC(1, 1));
+res = track_path(H, [CC(1), CC(1)]; visualize=true);
+filename = tempname() * ".tex";
+export_path_tikz(res, filename; axes=(:t, 1)) == filename
+```
+"""
 function export_path_tikz(
     input,
     filename::AbstractString;
@@ -341,6 +399,12 @@ function _path_obj_corners(box::PathBox, axes, lows, highs)
     return corners
 end
 
+"""
+    export_path_obj(input, filename; axes=(:t, 1, (1, :imag))) -> filename
+
+Export path boxes to a Wavefront OBJ file. OBJ export expects exactly three
+axes.
+"""
 function export_path_obj(input, filename::AbstractString; axes=(:t, 1, (1, :imag)))
     boxes = _path_export_boxes(_as_path_boxes(input))
     isempty(boxes) && throw(ArgumentError("no path boxes available to visualize. Run with store_boxes=:full or visualize=true."))

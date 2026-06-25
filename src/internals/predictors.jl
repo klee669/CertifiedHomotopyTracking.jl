@@ -78,7 +78,7 @@ function hermite_predictor(
 end
 
 
-function compute_velocity(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, A::AbstractMatrix{AcbFieldElem})
+function compute_velocity(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, A::AbstractMatrix{AcbFieldElem})
     CC = sys.CC
     x_mid = get_mid_vec(x)
     t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
@@ -86,7 +86,7 @@ function compute_velocity(sys::HCSystem, x::AbstractVector{AcbFieldElem}, t, A::
     return -A * Ht
 end
 
-function construct_hermite_predictor_tm(sys::HCSystem, x, x_prev, v, v_prev, h_prev, h_curr)
+function construct_hermite_predictor_tm(sys::SpecializedHomotopy, x, x_prev, v, v_prev, h_prev, h_curr)
     CC = sys.CC; RR = sys.RR
     dx = x - x_prev
     dv = v - v_prev

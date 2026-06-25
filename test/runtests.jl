@@ -34,19 +34,57 @@ end
     @test Nemo.radius(imag(interval)) == 0
 end
 
+@testset "Direct compiled homotopy tracking" begin
+    @variables x t
+    CC = AcbField(128)
+
+    compiled = compile_homotopy([(1 - t) * (x^2 - 1) + t * (x^2 - 4)], [x], t)
+    res = track_path(compiled, [CC(1)]; h_init=0.05)
+
+    @test success(res)
+    @test abs(solution(res)[1] - 2) < 1e-8
+
+    @variables y
+    constant_path = compile_homotopy(
+        [
+            (1 - t) * (x^2 - 1) + t * (x^2 + y - 2),
+            (1 - t) * (y^2 - 1) + t * (y^2 + x - 2),
+        ],
+        [x, y],
+        t,
+    )
+    constant_res = track_path(constant_path, [CC(1), CC(1)])
+
+    @test success(constant_res)
+    @test all(abs.(solution(constant_res) .- [1, 1]) .< 1e-8)
+
+    gamma_path = compile_homotopy(
+        [
+            (1 - t) * (1 + im) * (x^3 - 1) + t * (x^3 + 2y - 3),
+            (1 - t) * (y^2 - 1) + t * (y^2 + x - 2),
+        ],
+        [x, y],
+        t,
+    )
+    gamma_res = track_path(gamma_path, [CC(1), CC(1)])
+
+    @test success(gamma_res)
+    @test all(abs.(solution(gamma_res) .- [1, 1]) .< 1e-8)
+end
+
 @testset "Static variety system wrapper" begin
     @variables x y
     CC = AcbField(128)
 
     compiled = compile_system([x^2 + y^2 - 1], [x, y])
-    sys = HCSystem(compiled, CC)
+    sys = SpecializedHomotopy(compiled, CC)
     p = [CC(1), CC(0)]
 
     @test evaluate_H(sys, p, CC(0))[1] == 0
     @test size(evaluate_Jac(sys, p, CC(0))) == (1, 2)
 
     curve = variety_system([x^2 + (1 + im) * y^2 - 1], [x, y]; CCRing=CC)
-    @test system(curve) isa HCSystem
+    @test system(curve) isa SpecializedHomotopy
     @test evaluate_system(curve, p)[1] == 0
     @test size(jacobian_system(curve, p)) == (1, 2)
 
@@ -184,12 +222,12 @@ end
     res_projective = track_path(H_projective, start; h_init=0.05)
 
     compiled_projective = compile_edge_homotopy(F, [x], Num[]; projective=true)
-    sys_projective = HCSystem(compiled_projective, CC)
+    sys_projective = SpecializedHomotopy(compiled_projective, CC)
     direct_projective = track_path(sys_projective, start; h_init=0.05)
 
-    @test succeeded(res_affine)
-    @test succeeded(res_projective)
-    @test succeeded(direct_projective)
+    @test success(res_affine)
+    @test success(res_projective)
+    @test success(direct_projective)
     @test length(input_start(res_projective)) == 1
     @test length(refined_start(res_projective)) == 1
     @test length(projective_input_start(res_projective)) == 2
@@ -204,8 +242,8 @@ end
     H_large_projective = straight_line_homotopy(F_large, G, [x]; CCRing=CC, projective=true)
     large_projective = track_path(H_large_projective, start; h_init=0.05)
 
-    @test succeeded(large_affine)
-    @test succeeded(large_projective)
+    @test success(large_affine)
+    @test success(large_projective)
     @test abs(solution(large_affine)[1]) > 50
     @test large_projective.patch_idx == 2
     @test maximum(abs.(convert_to_double_int.(projective_solution(large_projective)))) <= 2
@@ -226,16 +264,16 @@ end
     fixed = track_path(H, start; h_init=0.05, adaptive_precision=false)
     promoted = track_path(H, start; h_init=0.05, rho=0.1, max_precision=106, precision_rejection_threshold=1)
 
-    @test succeeded(adaptive)
+    @test success(adaptive)
     @test adaptive.initial_precision == 53
     @test adaptive.final_precision == 53
     @test precision(parent(adaptive.root[1])) == 128
 
-    @test succeeded(fixed)
+    @test success(fixed)
     @test fixed.initial_precision == 128
     @test fixed.final_precision == 128
 
-    @test !succeeded(promoted)
+    @test !success(promoted)
     @test promoted.status == :step_too_small
     @test promoted.initial_precision == 53
     @test promoted.final_precision == 106
