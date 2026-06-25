@@ -241,3 +241,51 @@ end
     @test promoted.final_precision == 106
     @test precision(parent(promoted.root[1])) == 128
 end
+
+@testset "Path visualization export" begin
+    @variables x
+    CC = AcbField(128)
+    H = straight_line_homotopy([x - 2], [x - 1], [x]; CCRing=CC)
+    res = track_path(H, [CC(1)]; h_init=0.05, adaptive_precision=false, visualize=true)
+
+    @test succeeded(res)
+    @test !isempty(path_boxes(res))
+
+    tikz_file = tempname() * ".tex"
+    tikz3_file = tempname() * ".tex"
+    obj_file = tempname() * ".obj"
+    @test export_path_tikz(res, tikz_file) == tikz_file
+    @test export_path_tikz(res, tikz3_file; axes=(:t, 1, (1, :imag))) == tikz3_file
+    @test export_path_obj(res, obj_file) == obj_file
+    @test isfile(tikz_file)
+    @test isfile(tikz3_file)
+    @test isfile(obj_file)
+    @test occursin("\\documentclass[tikz,border=4pt]{standalone}", read(tikz_file, String))
+    @test occursin("\\begin{tikzpicture}", read(tikz_file, String))
+    @test occursin("z={(0cm,1cm)}", read(tikz3_file, String))
+    @test startswith(read(obj_file, String), "# CertifiedHomotopyTracking.jl path boxes")
+
+    auto_file = tempname() * ".tex"
+    auto_res = track_path(
+        H,
+        [CC(1)];
+        h_init=0.05,
+        adaptive_precision=false,
+        visualize=true,
+        visualize_options=(; filename=auto_file, axes=(:t, 1), color="red"),
+    )
+    @test succeeded(auto_res)
+    @test isfile(auto_file)
+
+    trace_file = tempname() * ".tex"
+    accepted_boxes = [box for box in path_boxes(res) if get(box.metadata, :stage, nothing) == :accepted_step]
+    box = first(accepted_boxes)
+    trace_viz = PathVisualization(
+        [box],
+        (:t, 1),
+        :posteriori,
+        (; trace_points = [box, last(accepted_boxes)]),
+    )
+    @test export_path_tikz(trace_viz, trace_file; show_trace=true) == trace_file
+    @test occursin("\\draw[black, line width=0.55pt]", read(trace_file, String))
+end

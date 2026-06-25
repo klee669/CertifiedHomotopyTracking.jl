@@ -601,6 +601,12 @@ function certify_path_a_posteriori(
     certification_chart = :affine,
     projective_chart = :auto,
     store_boxes = :summary,
+    visualize = false,
+    visualization_filename = nothing,
+    visualization_axes = nothing,
+    visualization_show_trace = nothing,
+    visualize_options = (;),
+    show_trace = nothing,
     diagnostics = :off,
     show_progress = false,
     throw_on_failure = false,
@@ -628,7 +634,7 @@ function certify_path_a_posteriori(
     )
     actual_x_start = ComplexF64.(refined)
     depth_schedule = _posteriori_depth_schedule(max_depth)
-    storage_mode = _posteriori_storage_mode(store_boxes)
+    storage_mode = _posteriori_storage_mode(visualize === false ? store_boxes : :full)
 
     if certification_chart === :projective
         cert = _certify_path_a_posteriori_projective(
@@ -651,17 +657,17 @@ function certify_path_a_posteriori(
             status = haskey(cert, :status) ? cert.status : :certification_failed
             error("projective a posteriori path certification failed with status $(status)")
         end
-        return PosterioriPathResult(
-            merge(
-                cert,
-                (
-                    posteriori_tracker = tracker,
-                    certification_chart = :projective,
-                    t_start = actual_t_start,
-                    t_target = actual_t_target,
-                ),
+        data = merge(
+            cert,
+            (
+                posteriori_tracker = tracker,
+                certification_chart = :projective,
+                t_start = actual_t_start,
+                t_target = actual_t_target,
             ),
         )
+        data = _attach_posteriori_visualization(data, get(data, :projective_system, sys); visualize=visualize, visualization_filename=visualization_filename, visualization_axes=visualization_axes, visualization_show_trace=show_trace === nothing ? visualization_show_trace : show_trace, visualize_options=visualize_options)
+        return PosterioriPathResult(data)
     end
 
     cert = _certify_hc_path_a_posteriori(
@@ -696,17 +702,17 @@ function certify_path_a_posteriori(
             status = haskey(cert, :status) ? cert.status : :certification_failed
             error("a posteriori path certification failed with status $(status)")
         end
-        return PosterioriPathResult(
-            merge(
-                cert,
-                (
-                    posteriori_tracker = tracker,
-                    certification_chart = :affine,
-                    t_start = actual_t_start,
-                    t_target = actual_t_target,
-                ),
+        data = merge(
+            cert,
+            (
+                posteriori_tracker = tracker,
+                certification_chart = :affine,
+                t_start = actual_t_start,
+                t_target = actual_t_target,
             ),
         )
+        data = _attach_posteriori_visualization(data, sys; visualize=visualize, visualization_filename=visualization_filename, visualization_axes=visualization_axes, visualization_show_trace=show_trace === nothing ? visualization_show_trace : show_trace, visualize_options=visualize_options)
+        return PosterioriPathResult(data)
     end
 
     projective_cert = _certify_path_a_posteriori_projective(
@@ -734,16 +740,91 @@ function certify_path_a_posteriori(
         status = haskey(projective_cert, :status) ? projective_cert.status : :certification_failed
         error("a posteriori path certification failed with status $(status)")
     end
-    return PosterioriPathResult(
-        merge(
-            projective_cert,
-            (
-                posteriori_tracker = tracker,
-                certification_chart = :projective,
-                affine_cert = cert,
-                t_start = actual_t_start,
-                t_target = actual_t_target,
-            ),
+    data = merge(
+        projective_cert,
+        (
+            posteriori_tracker = tracker,
+            certification_chart = :projective,
+            affine_cert = cert,
+            t_start = actual_t_start,
+            t_target = actual_t_target,
         ),
     )
+    data = _attach_posteriori_visualization(data, get(data, :projective_system, sys); visualize=visualize, visualization_filename=visualization_filename, visualization_axes=visualization_axes, visualization_show_trace=show_trace === nothing ? visualization_show_trace : show_trace, visualize_options=visualize_options)
+    return PosterioriPathResult(data)
+end
+
+function _attach_posteriori_visualization(data, sys::HCSystem; visualize, visualization_filename, visualization_axes, visualization_show_trace=false, visualize_options=(;))
+    if haskey(data, :boxes)
+        pboxes = _posteriori_path_boxes(sys, data.boxes)
+        trace_points = _posteriori_trace_path_boxes(sys, data)
+        viz_axes = _visualization_axes(visualize, visualization_axes, visualize_options)
+        viz = PathVisualization(
+            pboxes,
+            _normalize_path_axes(viz_axes),
+            :posteriori,
+            (; success = get(data, :success, missing), trace_points = trace_points),
+        )
+        data = merge(data, (path_boxes = pboxes, path_trace = trace_points, visualization = viz))
+        visualize !== false && _maybe_export_path_visualization(
+            viz,
+            visualize,
+            visualization_filename;
+            axes=visualization_axes,
+            show_trace=visualization_show_trace,
+            visualize_options=visualize_options,
+        )
+    end
+    return data
+end
+
+function _posteriori_trace_time(data, t)
+    haskey(data, :t_start) && haskey(data, :t_target) && data.t_start > data.t_target && return 1.0 - Float64(t)
+    return Float64(t)
+end
+
+function _posteriori_trace_path_boxes(sys::HCSystem, data)
+    haskey(data, :hc_trace) || return PathBox[]
+    trace_data = data.hc_trace
+    haskey(trace_data, :trace) || return PathBox[]
+    return PathBox[
+        PathBox(
+            sys.CC(_posteriori_trace_time(data, point.t), sys.RR(0)),
+            sys.CC.(point.x),
+            :posteriori_hc_trace,
+            (; stage = :hc_trace),
+        )
+        for point in trace_data.trace
+    ]
+end
+
+function _posteriori_path_boxes(sys::HCSystem, boxes)
+    out = PathBox[]
+    for box in boxes
+        haskey(box, :unknown_box) || continue
+        haskey(box, :local_parameter_interval) || continue
+        haskey(box, :local_parameter) || continue
+        x_box, t_box = _local_parameter_reconstruct_x_t(
+            sys,
+            box.unknown_box,
+            box.local_parameter.index,
+            box.local_parameter_interval,
+            length(box.x_start),
+        )
+        push!(
+            out,
+            PathBox(
+                t_box,
+                x_box,
+                :posteriori,
+                (
+                    parent_index = get(box, :parent_index, missing),
+                    depth = get(box, :depth, missing),
+                    method = get(box, :method, missing),
+                    local_parameter = box.local_parameter.name,
+                ),
+            ),
+        )
+    end
+    return out
 end
