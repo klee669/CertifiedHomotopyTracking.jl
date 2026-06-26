@@ -88,7 +88,7 @@ end
     @test evaluate_system(curve, p)[1] == 0
     @test size(jacobian_system(curve, p)) == (1, 2)
 
-    frame = local_tangent_normal_frame(curve, p)
+    frame = CertifiedHomotopyTracking.local_tangent_normal_frame(curve, p)
     @test frame.dim == 1
     @test frame.rank == 1
     passed, _ = krawczyk_test(curve, p, frame, 1e-3, 1e-3)
@@ -286,7 +286,7 @@ end
     H = straight_line_homotopy([x - 2], [x - 1], [x]; CCRing=CC)
     res = track_path(H, [CC(1)]; h_init=0.05, adaptive_precision=false, visualize=true)
 
-    @test succeeded(res)
+    @test success(res)
     @test !isempty(path_boxes(res))
 
     tikz_file = tempname() * ".tex"
@@ -312,7 +312,7 @@ end
         visualize=true,
         visualize_options=(; filename=auto_file, axes=(:t, 1), color="red"),
     )
-    @test succeeded(auto_res)
+    @test success(auto_res)
     @test isfile(auto_file)
 
     trace_file = tempname() * ".tex"
