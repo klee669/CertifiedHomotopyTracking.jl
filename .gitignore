@@ -9,6 +9,9 @@ docs/build/
 *.mem
 Manifest.toml
 
+# Generated complexity experiment outputs
+examples/complexity_examples (under construction)/results_order3/
+
 # Local editor files
 *.swp
 *.swo
