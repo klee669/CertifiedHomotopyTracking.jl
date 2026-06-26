@@ -1,6 +1,6 @@
 name = "CertifiedHomotopyTracking"
 uuid = "eb899720-675b-4191-acdc-9a7e63317b5e"
-version = "1.0.1"
+version = "1.0.0"
 authors = ["Kisun Lee"]
 
 [deps]
