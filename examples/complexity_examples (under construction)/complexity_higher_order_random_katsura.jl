@@ -84,19 +84,19 @@ end
 
 function katsura_system(x_vars, n::Int)
     R = parent(x_vars[1])
-    F = elem_type(typeof(R))[]
-    for i in 0:n - 1
-        poly = zero(R)
-        for j in -n:n
-            k = i - j
-            (0 <= abs(j) <= n - 1 && 0 <= abs(k) <= n - 1) || continue
-            xj = x_vars[abs(j) + 1]
-            xk = x_vars[abs(k) + 1]
-            poly += xj * xk
-        end
-        push!(F, poly - x_vars[i + 1])
+    m = n - 1
+    u(i) = abs(i) <= m ? x_vars[abs(i) + 1] : zero(R)
+
+    F = elem_type(typeof(R))[
+        -one(R) + sum(u(i) for i in -m:m; init=zero(R)),
+    ]
+
+    for i in 0:m - 1
+        push!(
+            F,
+            -u(i) + sum(u(j) * u(i - j) for j in -m:m; init=zero(R)),
+        )
     end
-    F[1] += x_vars[1] - 1
     return transpose(hcat(F))
 end
 
@@ -137,7 +137,7 @@ function run_random_dense_smoke(; n=4, d=2, runs=RUNS, order=ORDER)
             iterations_count=true,
             show_display=false,
         )
-        _, hermite_iterations = track(
+        _, hermite_iterations = CertifiedHomotopyTracking.track(
             H,
             copy(point);
             r=INITIAL_RADIUS,
@@ -184,7 +184,7 @@ function run_katsura_smoke(; n=4, runs=RUNS, order=ORDER)
             iterations_count=true,
             show_display=false,
         )
-        _, hermite_iterations = track(
+        _, hermite_iterations = CertifiedHomotopyTracking.track(
             H,
             copy(point);
             r=INITIAL_RADIUS,

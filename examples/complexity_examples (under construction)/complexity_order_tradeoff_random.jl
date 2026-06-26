@@ -23,6 +23,7 @@ function order_tradeoff_random(;
     seed=20240626,
     max_order=6,
     initial_radius=INITIAL_RADIUS,
+    show_display=false,
 )
     H, point = fixed_random_dense_problem(; n, d, seed)
     rows = []
@@ -33,7 +34,7 @@ function order_tradeoff_random(;
             copy(point),
             initial_radius;
             iterations_count=true,
-            show_display=true,
+            show_display,
         )
     end
     push!(rows, (
@@ -47,12 +48,12 @@ function order_tradeoff_random(;
     ))
 
     track_elapsed = @elapsed begin
-        _, track_iterations = track(
+        _, track_iterations = CertifiedHomotopyTracking.track(
             H,
             copy(point);
             r=initial_radius,
             iterations_count=true,
-            show_display=true,
+            show_display,
         )
     end
     push!(rows, (
@@ -73,7 +74,7 @@ function order_tradeoff_random(;
                 initial_radius;
                 order,
                 iterations_count=true,
-                show_display=true,
+                show_display,
             )
         end
         push!(rows, (
@@ -117,4 +118,6 @@ function order_tradeoff_random(;
     return rows
 end
 
-rows = order_tradeoff_random(max_order=8)
+if abspath(PROGRAM_FILE) == @__FILE__
+    rows = order_tradeoff_random(max_order=8)
+end

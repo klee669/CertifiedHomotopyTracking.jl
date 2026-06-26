@@ -78,9 +78,9 @@ for i in 1:100
 
 
     sol1, it1 = tracking_certified_predictor(H, H1, point, .1; iterations_count = true)
-    sol2, it2 = tracking_without_predictor(H,point,.1; iterations_count = true)
-    sol3, it3 = track(H,point,.1; iterations_count = true)
-    sol4, it4 = track(H,point,.1; iterations_count = true, tracking = "non-truncate")
+    sol2, it2 = CertifiedHomotopyTracking.tracking_without_predictor(H, point; r=.1, iterations_count=true)
+    sol3, it3 = CertifiedHomotopyTracking.track(H, point; r=.1, iterations_count=true)
+    sol4, it4 = CertifiedHomotopyTracking.track(H, point; r=.1, iterations_count=true, tracking="non-truncate")
     sol5, it5 = tracking_certified_hermite_predictor(H,point,.1; iterations_count = true)
     push!(iters1, it1)
     push!(iters2, it2)
@@ -89,4 +89,3 @@ for i in 1:100
     push!(iters5, it5)
 end
 mean(iters1), mean(iters2), mean(iters3), mean(iters4), mean(iters5)
-
