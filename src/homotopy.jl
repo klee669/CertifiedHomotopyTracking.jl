@@ -18,7 +18,7 @@ H(x,t) = (1 - t) \\gamma G(x) + t F(x).
 
 It accepts vectors of symbolic expressions `F` and `G`
 and the variable vector `x_vars`. It compiles the homotopy and returns an
-[`SpecializedHomotopy`](@ref), suitable for [`track_path`](@ref).
+[`SpecializedHomotopy`](@ref) for [`track_path`](@ref).
 
 # Options
 
@@ -26,14 +26,9 @@ and the variable vector `x_vars`. It compiles the homotopy and returns an
 - `projective=false`: homogenize and compile chart-based projective tracking.
 - `gamma=nothing`: gamma-trick scalar. If omitted, a random complex scalar is used.
 
-The lower-level polynomial-ring method `straight_line_homotopy(F, G, t)` returns
-the symbolic polynomial homotopy in the ring of `t`; it is kept for legacy code.
-
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(256);
 F = [x^2 + 3y - 4, y^2 + 3];

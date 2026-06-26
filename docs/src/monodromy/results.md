@@ -32,6 +32,4 @@ first(result)
 
 ```@docs
 MonodromyResult
-Vertex
-Edge
 ```

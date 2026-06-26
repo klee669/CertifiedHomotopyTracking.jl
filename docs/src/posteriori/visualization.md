@@ -4,9 +4,11 @@ Set `visualize` to keep the certified boxes, and export them to TikZ with either
 two or three axes. The following example draws the certification boxes in
 `(t, Re(x1), Im(x2))` coordinates and overlays the numerical HC.jl trace.
 
-```@repl posteriori_visualization
-using CertifiedHomotopyTracking;
+```@setup posteriori_visualization
+using CertifiedHomotopyTracking
+```
 
+```@repl posteriori_visualization
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + 3*y - 4, y^2 + 3];

@@ -1,10 +1,15 @@
 # Path Tracking
 
+The certified tracking implementation follows Krawczyk-based homotopy tracking
+ideas from [duff2024certified,guillemot2024validated](@cite).
+
 ## Basic Usage
 
-```@repl path_tracking_example
-using CertifiedHomotopyTracking;
+```@setup path_tracking_example
+using CertifiedHomotopyTracking
+```
 
+```@repl path_tracking_example
 @variables x y;
 CC = AcbField(256);
 F = [x^2 + 3y - 4, y^2 + 3];
@@ -25,4 +30,10 @@ track_path
 <object data="../assets/path2.pdf" type="application/pdf" width="100%" height="520">
   <a href="../assets/path2.pdf">Open example path PDF</a>
 </object>
+```
+
+## References
+
+```@bibliography
+Pages = [@__FILE__]
 ```

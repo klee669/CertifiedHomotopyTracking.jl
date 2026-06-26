@@ -110,8 +110,6 @@ Evaluate the defining equations of `variety` at `x`.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y z;
 CC = AcbField(128);
 surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);
@@ -477,8 +475,6 @@ seed points.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y z;
 CC = AcbField(128);
 surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);
@@ -706,8 +702,6 @@ fixed constants.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 CC = AcbField(128);
 @variables x y z;
 surface = variety_system([x^2 + y^2 + z^2 - 1], [x, y, z]; CCRing=CC);

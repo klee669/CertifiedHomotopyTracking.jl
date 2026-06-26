@@ -207,6 +207,7 @@ function _node_refinement_failure_result(points, err, method, diagnostics_data)
     return (
         success = false,
         status = :node_refinement_failed,
+        endpoint_region = AcbFieldElem[],
         boxes = NamedTuple[],
         segments = NamedTuple[],
         failed_segments = [(status = :node_refinement_failed, error = err)],
@@ -713,6 +714,11 @@ function _endpoint_enclosure_x(sys::SpecializedHomotopy, point)
     radius <= 0 && return point.x
     unit = sys.CC(sys.RR("0 +/- 1"), sys.RR("0 +/- 1"))
     return [xi + unit * sys.CC(radius) for xi in point.x]
+end
+
+function _certified_endpoint_region(sys::SpecializedHomotopy, nodes::AbstractVector)
+    isempty(nodes) && return AcbFieldElem[]
+    return _endpoint_enclosure_x(sys, nodes[end])
 end
 
 function _validate_local_parameter_endpoint_box_segment_once(
@@ -1645,6 +1651,7 @@ function certify_hc_trace_adaptive_local_parameter(
         end
         return (
             success = isempty(failures),
+            endpoint_region = isempty(failures) ? _certified_endpoint_region(sys, nodes) : AcbFieldElem[],
             boxes = boxes,
             segments = boxes,
             failed_segments = failures,
@@ -1749,6 +1756,7 @@ function certify_hc_trace_adaptive_local_parameter(
 
     return (
         success = isempty(failures),
+        endpoint_region = isempty(failures) ? _certified_endpoint_region(sys, nodes) : AcbFieldElem[],
         boxes = boxes,
         segments = boxes,
         failed_segments = failures,

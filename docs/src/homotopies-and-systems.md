@@ -17,9 +17,11 @@ system_with_precision
 
 ## Evaluation Example
 
-```@repl homotopy_evaluation
-using CertifiedHomotopyTracking;
+```@setup homotopy_evaluation
+using CertifiedHomotopyTracking
+```
 
+```@repl homotopy_evaluation
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + y - 2, y^2 + x - 2];
@@ -36,9 +38,11 @@ evaluate_dt(H, point, t)
 
 ## Direct Homotopy Example
 
-```@repl direct_homotopy
-using CertifiedHomotopyTracking;
+```@setup direct_homotopy
+using CertifiedHomotopyTracking
+```
 
+```@repl direct_homotopy
 @variables x y t;
 gamma = 1 + im;
 compiled = compile_homotopy([(1 - t) * gamma * (x^3 - 1) + t * (x^3 + 2y - 2),

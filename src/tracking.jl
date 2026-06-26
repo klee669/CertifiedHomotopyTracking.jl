@@ -685,8 +685,6 @@ homotopy can be passed directly; the ACB precision is inferred from `x_start`.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(256);
 F = [x^2 + 3y - 4, y^2 + 3];
