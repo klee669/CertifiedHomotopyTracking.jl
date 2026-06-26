@@ -2,9 +2,11 @@
 
 ## Result Accessors
 
-```@repl tracking_results_example
-using CertifiedHomotopyTracking;
+```@setup tracking_results_example
+using CertifiedHomotopyTracking
+```
 
+```@repl tracking_results_example
 @variables x y;
 CC = AcbField(256);
 F = [x^2 + 3y - 4, y^2 + 3];

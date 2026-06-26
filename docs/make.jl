@@ -1,9 +1,13 @@
 using Documenter
+using DocumenterCitations
 using CertifiedHomotopyTracking
+
+bib = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"), style=:alpha)
 
 makedocs(
     sitename = "CertifiedHomotopyTracking.jl",
     modules = [CertifiedHomotopyTracking],
+    plugins = [bib],
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
     ),
@@ -11,8 +15,8 @@ makedocs(
         "Home" => "index.md",
         "Homotopies and Systems" => "homotopies-and-systems.md",
         "Krawczyk Test" => "krawczyk-test.md",
-        "A Posteriori Certification" => [
-            "Certification" => "posteriori/certification.md",
+        "A Posteriori Path Certification" => [
+            "A Posteriori Certification" => "posteriori/certification.md",
             "Numerical Trace" => "posteriori/low-level.md",
             "Visualization" => "posteriori/visualization.md",
         ],
@@ -21,7 +25,8 @@ makedocs(
             "Tracking Results" => "tracking/results.md",
         ],
         "Monodromy" => [
-            "Solving" => "monodromy/solving.md",
+            "Solving Monodromy" => "monodromy/solving.md",
+            "Homotopy Graph" => "monodromy/graph.md",
             "Results" => "monodromy/results.md",
             "GAP Computations" => "monodromy/gap.md",
         ],

@@ -33,20 +33,19 @@ Base.success(result::PosterioriPathResult) = result.success
 
 function _posteriori_endpoint_field(result::PosterioriPathResult)
     data = getfield(result, :data)
+    if haskey(data, :endpoint_region)
+        endpoint = data.endpoint_region
+        if !isempty(endpoint)
+            if get(data, :certification_chart, :affine) === :projective && haskey(data, :projective_system)
+                affine, _ = _projective_to_affine(data.projective_system, endpoint)
+                return affine
+            end
+            return parent(endpoint[1]).(endpoint)
+        end
+    end
     if haskey(data, :affine_endpoint)
         endpoint = data.affine_endpoint
         isempty(endpoint) || return parent(endpoint[1]).(endpoint)
-    end
-    if haskey(data, :hc_trace) && haskey(data.hc_trace, :trace) && !isempty(data.hc_trace.trace)
-        tracker = get(data, :posteriori_tracker, nothing)
-        CC = if tracker !== nothing && tracker.cht_system_cache !== nothing
-            tracker.cht_system_cache.CC
-        elseif tracker !== nothing
-            AcbField(max(53, precision(tracker.compiled.CC)))
-        else
-            AcbField(53)
-        end
-        return CC.(last(data.hc_trace.trace).x)
     end
     return AcbFieldElem[]
 end
@@ -54,18 +53,19 @@ end
 """
     certified_region(cert::PosterioriPathResult)
 
-Return the final endpoint of the certified HC.jl trace as an ACB vector.
+Return the certified endpoint region obtained by a posteriori certification.
 
-For a posteriori certification this is the numerical trace endpoint lifted into
-the CHT field; the certificate is the verified tube/box data stored in `cert`.
+This is the Moore-refined endpoint box for the final trace node, stored as an
+ACB vector. For projective a posteriori certification, the endpoint box is
+converted back to the original affine coordinates when possible.
 """
 certified_region(cert::PosterioriPathResult) = _posteriori_endpoint_field(cert)
 
 """
     solution(cert::PosterioriPathResult)
 
-Return a `Vector{ComplexF64}` obtained from the midpoint of
-[`certified_region`](@ref).
+Return a `Vector{ComplexF64}` obtained from the midpoint of the certified
+endpoint region [`certified_region`](@ref).
 """
 solution(cert::PosterioriPathResult) = convert_to_double_int.(certified_region(cert))
 
@@ -667,8 +667,6 @@ test.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + 3*y - 4, y^2 + 3];

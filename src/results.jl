@@ -17,7 +17,7 @@ The most commonly used fields are:
 - `root`: certified endpoint region in affine coordinates when possible.
 - `projective_root`: certified endpoint region in homogeneous coordinates for projective tracking.
 - `iterations`, `accepted_steps`, `rejected_steps`: path-tracking counters.
-- `final_t`, `final_h`, `final_radius`, `final_krawczyk_norm`: final tracking diagnostics.
+- `final_t`, `final_h`, `final_radius`, `final_krawczyk_norm`: final tracking diagnostics. For inspecting the last attempted step when tracking fails.
 - `initial_precision`, `final_precision`: precision used by adaptive tracking.
 
 `TrackResult` also iterates as `(certified_region, success)` for compatibility
@@ -26,8 +26,6 @@ with older code, but new code should prefer the named accessors.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(256);
 F = [x^2 + 3y - 4, y^2 + 3];
@@ -147,7 +145,7 @@ succeeded(res::TrackResult) = success(res)
 
 Return the certified endpoint in projective coordinates when available.
 
-For affine tracking, or for old results without projective data, this falls back
+For affine tracking, this falls back
 to `res.root`.
 """
 projective_solution(res::TrackResult) = isempty(res.projective_root) ? res.root : res.projective_root

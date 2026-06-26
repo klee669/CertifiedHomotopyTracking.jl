@@ -148,7 +148,7 @@ end
 
 ## Usage of AI
 
-AI coding assistants were used during parts of the development process for
+AI coding assistants were used during parts of the development for
 implementation support, refactoring, and documentation drafting. All code changes
 are reviewed by a human maintainer, and the package documentation is written and
 curated by humans.

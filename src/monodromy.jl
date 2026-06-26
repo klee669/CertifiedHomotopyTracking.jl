@@ -18,15 +18,30 @@ Node of a monodromy graph.
 Fields:
 
 - `base_point`: parameter value attached to the vertex.
-- `sols`: known solutions over `base_point`.
+- `solutions`: known solutions over `base_point`.
 - `Edges`: incident graph edges.
 
 Construct vertices with [`vertex`](@ref).
 """
 mutable struct Vertex
     base_point::PointType
-    sols::Vector{PointType}
+    solutions::Vector{PointType}
     Edges::Vector{Any} # Type Any to avoid circular dependency
+end
+
+function Base.getproperty(v::Vertex, name::Symbol)
+    name === :sols && return getfield(v, :solutions)
+    return getfield(v, name)
+end
+
+function Base.setproperty!(v::Vertex, name::Symbol, value)
+    name === :sols && return setfield!(v, :solutions, value)
+    return setfield!(v, name, value)
+end
+
+function Base.propertynames(v::Vertex, private::Bool=false)
+    names = fieldnames(Vertex)
+    return private ? (names..., :sols) : names
 end
 
 """
@@ -97,7 +112,7 @@ Create an empty monodromy graph edge between vertices `v` and `w`.
 """
 edge(p::Vertex, q::Vertex) = Edge(p, q, Tuple{Int,Int}[], Tuple{Int,Int}[])
 
-Base.show(io::IO, v::Vertex) = print(io, "Vertex($(length(v.sols)) solutions)")
+Base.show(io::IO, v::Vertex) = print(io, "Vertex($(length(v.solutions)) solutions)")
 Base.show(io::IO, e::Edge) = print(io, "Edge($(length(e.correspondence12)) correspondences)")
 Base.show(io::IO, result::MonodromyResult) = print(
     io,
@@ -117,8 +132,6 @@ endpoint vertices.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 CC = AcbField(128);
 vertices = [vertex([CC(i)]) for i in 1:3];
 edges = build_edges(vertices, [(1, 2), (2, 3), (3, 1)])
@@ -150,8 +163,6 @@ internally for complex numeric coefficients.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y p q;
 CC = AcbField(256);
 F = [p*x^2 + 3y - 4, y^2 + q];
@@ -173,9 +184,8 @@ function make_edge_system(
 end
 
 function _posteriori_endpoint(sys_edge::SpecializedHomotopy, cert)
-    if haskey(cert, :affine_endpoint)
-        return sys_edge.CC.(cert.affine_endpoint), true
-    end
+    region = certified_region(cert)
+    isempty(region) || return sys_edge.CC.(region), true
     if haskey(cert, :segments) && !isempty(cert.segments)
         _, idx = findmax(seg -> seg.t_end, cert.segments)
         seg = cert.segments[idx]
@@ -307,7 +317,10 @@ built on `vertices`. If `edges` are supplied, the custom graph is tracked.
 # Options for the compiled workflow
 
 - `max_roots=20`: target number of correspondences per edge.
-- `max_attempts=10`: stop after this many stagnant iterations.
+- `max_attempts=10`: stop after this many consecutive stagnant solve-loop
+  iterations. An iteration is stagnant when the stored correspondences do not
+  increase after tracking the current graph, so increasing this value gives the
+  solver more chances to discover new roots before returning a partial result.
 - `show_progress=false`: print path-tracking progress.
 - `root_match=:certified_or_heuristic`: root matching mode used when deciding whether a
   tracked endpoint is already present in the target vertex. Supported values are
@@ -319,8 +332,6 @@ built on `vertices`. If `edges` are supplied, the custom graph is tracked.
 - `posteriori=false`: additionally certify paths with
   [`certify_posteriori`](@ref).
 - `posteriori_options=(;)`: options forwarded to a posteriori certification.
-- `return_result=true`: return a [`MonodromyResult`](@ref); set to `false` for
-  the legacy `Vector{Edge}` return value.
 - `threading=false`, `ntasks=Threads.nthreads()`: track independent paths in
   parallel when enabled.
 
@@ -329,8 +340,6 @@ The graph is mutated in-place. Interrupting with Ctrl-C returns partial data.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y p q;
 CC = AcbField(256);
 F = [p*x^2 + 3y - 4, y^2 + q];
@@ -342,11 +351,6 @@ vertices = [v1; [vertex([CC(cis(0.2k)), CC(cis(0.3k))]) for k in 1:3]];
 # Omitting edges uses the complete graph on vertices.
 result = solve_monodromy(compiled, vertices; max_roots=4)
 length(result.edges)
-
-# Or provide a custom graph explicitly.
-vertices = [v1; [vertex([CC(cis(0.2k)), CC(cis(0.3k))]) for k in 1:5]];
-edges = build_edges(vertices, [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1)])
-length(edges)
 ```
 """
 function solve_monodromy(
@@ -482,8 +486,8 @@ function track_edge!(
         c_forward, c_backward = e.correspondence21, e.correspondence12
     end
 
-    source_sols = source_v.sols
-    target_sols = target_v.sols
+    source_sols = source_v.solutions
+    target_sols = target_v.solutions
     
     # Identify which paths haven't been tracked yet
     tracked_indices = Set(x[1] for x in c_forward)
@@ -554,8 +558,8 @@ function track_edge!(
         c_forward, c_backward = e.correspondence21, e.correspondence12
     end
 
-    source_sols = source_v.sols
-    target_sols = target_v.sols
+    source_sols = source_v.solutions
+    target_sols = target_v.solutions
     
     tracked_indices = Set(x[1] for x in c_forward)
     untracked_indices = Int[]
@@ -789,8 +793,7 @@ end
 
 Track the given graph for a compiled homotopy and return a
 `MonodromyResult`. The result stores the mutated `vertices`, `edges`,
-success/status metadata, iteration counts, and optional diagnostics. Set
-`return_result = false` for the legacy `Vector{Edge}` return value.
+success/status metadata, iteration counts, and optional diagnostics.
 
 Within one solve run, paths that already failed are cached and skipped on later
 iterations with the same options.
@@ -837,8 +840,8 @@ function solve_monodromy(
                 total_correspondences = current_correspondences
             end
             
-            max_sols_found = maximum(length(v.sols) for v in vertices)
-            total_sols_stored = sum(length(v.sols) for v in vertices)
+            max_sols_found = maximum(length(v.solutions) for v in vertices)
+            total_sols_stored = sum(length(v.solutions) for v in vertices)
             
             println("\n" * "="^70)
             println(" Iteration $iter | Target: $max_roots | Max Found: $max_sols_found | Stored: $total_sols_stored | Stagnant: $iter_stagnant")

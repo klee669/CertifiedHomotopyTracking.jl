@@ -1,7 +1,8 @@
 # Krawczyk Test
 
 These lower-level helpers expose the interval Krawczyk tests used by the path
-tracker, Moore-box refinement, and variety certification routines.
+tracker, Moore-box refinement, and variety certification routines. The core
+test goes back to Krawczyk's interval Newton method [krawczyk1969newton](@cite).
 
 ## `krawczyk_test`
 
@@ -9,9 +10,11 @@ tracker, Moore-box refinement, and variety certification routines.
 krawczyk_test
 ```
 
-```@repl krawczyk_test_example
-using CertifiedHomotopyTracking;
+```@setup krawczyk_test_example
+using CertifiedHomotopyTracking
+```
 
+```@repl krawczyk_test_example
 @variables x y;
 CC = AcbField(128);
 compiled = compile_system([x^2 + y^2 - 2, x^3 - y], [x, y]);
@@ -49,4 +52,10 @@ krawczyk_test(sys, refined, t, radius, A_refined)
 
 ```@docs
 krawczyk_operator
+```
+
+## References
+
+```@bibliography
+Pages = [@__FILE__]
 ```

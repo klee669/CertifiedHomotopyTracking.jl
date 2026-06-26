@@ -6,9 +6,11 @@ with CHT interval checks. By default, each trace segment is certified in an
 adaptively chosen local parameter: CHT may use `t`, `Re(x_i)`, or `Im(x_i)`
 instead of forcing the whole argument to use `t`.
 
-```@repl posteriori_certification
-using CertifiedHomotopyTracking;
+```@setup posteriori_certification
+using CertifiedHomotopyTracking
+```
 
+```@repl posteriori_certification
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + 3*y - 4, y^2 + 3];
@@ -24,6 +26,11 @@ certified_region(cert)
 cert.total_boxes
 cert.failed_segments
 ```
+
+For a successful result, [`certified_region`](@ref) returns the certified
+endpoint enclosure stored in the a posteriori result. [`solution`](@ref) returns
+the midpoint of that enclosure as a `Vector{ComplexF64}` for display and
+downstream numerical use.
 
 ```@docs
 certify_posteriori

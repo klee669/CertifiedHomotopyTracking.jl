@@ -4,9 +4,11 @@ The following lower-level calls expose the intermediate HomotopyContinuation.jl
 objects and numerical trace used by [`certify_posteriori`](@ref). This is
 mostly useful for debugging or inspecting what is being certified.
 
-```@repl posteriori_low_level
-using CertifiedHomotopyTracking;
+```@setup posteriori_low_level
+using CertifiedHomotopyTracking
+```
 
+```@repl posteriori_low_level
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + 3*y - 4, y^2 + 3];

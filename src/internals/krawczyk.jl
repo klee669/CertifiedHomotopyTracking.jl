@@ -64,7 +64,8 @@ end
 Compute the legacy polynomial-ring Krawczyk operator for `system` at `point`
 with radius `r` and preconditioner `A`.
 
-For current [`SpecializedHomotopy`](@ref)-based code, use [`krawczyk_test`](@ref) instead.
+For current [`SpecializedHomotopy`](@ref)-based code, prefer
+[`krawczyk_test`](@ref).
 """
 function krawczyk_operator(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 
@@ -93,14 +94,11 @@ end
 
 
 """
-    krawczyk_test(system, point, r, A, rho)
     krawczyk_test(sys::SpecializedHomotopy, x, t, r; rho=0.7)
     krawczyk_test(sys::SpecializedHomotopy, x, t, r, A; rho=0.7)
 
 Run a Krawczyk inclusion/contraction test.
-
-For `SpecializedHomotopy` inputs, returns `(passed, k_norm)`. For the legacy
-polynomial-ring method, returns a boolean.
+For a given system and point, returns `(passed, k_norm)`. 
 """
 function krawczyk_test(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 

@@ -1,7 +1,6 @@
 export refine_moore_box
 
 """
-    refine_moore_box(system, point, r, A, rho)
     refine_moore_box(sys::SpecializedHomotopy, x, t, r_init, A_init; tau=0.125)
     refine_moore_box(variety::AlgebraicVarietySystem, x, normal_radius; kwargs...)
 
@@ -9,7 +8,7 @@ Refine a Moore box until the corresponding Krawczyk test succeeds, or report
 failure.
 
 The `SpecializedHomotopy` method is used internally by [`track_path`](@ref). The
-`AlgebraicVarietySystem` method returns a [`VarietyBox`](@ref) and is useful for
+`AlgebraicVarietySystem` method returns a [`VarietyBox`](@ref) for
 certifying local boxes on varieties.
 
 Common variety options:

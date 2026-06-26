@@ -41,8 +41,6 @@ vector of named tuples `(t = ..., x = ...)`.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + 3*y - 4, y^2 + 3];

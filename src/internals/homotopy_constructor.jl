@@ -47,7 +47,7 @@ Compile an explicitly given symbolic homotopy `H_eqs(x, t)`.
 
 Use this when you have already written the homotopy equations yourself. The
 returned [`CompiledHomotopy`](@ref) can be passed directly to
-[`track_path`](@ref). The tracking precision is inferred from the ACB field of
+[`track_path`](@ref) or [`certify_posteriori`](@ref). The tracking precision is inferred from the ACB field of
 the starting point.
 
 Complex numeric coefficients in `H_eqs` are internally parameterized and stored
@@ -61,8 +61,6 @@ as fixed constants, so expressions such as `(1 + im) * (x^3 - 1)` work.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y t;
 gamma = 1 + im;
 compiled = compile_homotopy([(1 - t) * gamma * (x^3 - 1) + t * (x^3 + 2y - 2),
@@ -137,8 +135,6 @@ a [`SpecializedHomotopy`](@ref) with `t = 0`.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(128);
 compiled = compile_system([x^2 + y^2 - 1], [x, y]);
@@ -211,8 +207,6 @@ as fixed constants, so expressions such as `(1 + 2im) * x^2` work.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y p q;
 CC = AcbField(256);
 F = [p*x^2 + 3y - 4, y^2 + q];

@@ -19,8 +19,11 @@ There are relevant constructions and helpers for each task:
 
 ## Quick Start
 
+```@setup quick_start
+using CertifiedHomotopyTracking
+```
+
 ```@repl quick_start
-using CertifiedHomotopyTracking;
 @variables x y t;
 gamma = 1 + im;
 compiled = compile_homotopy([(1 - t) * gamma * (x^3 - 1) + t * (x^3 + 2y - 2),

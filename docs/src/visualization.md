@@ -1,8 +1,10 @@
 # [Visualization](@id visualization)
 
-```@repl visualization_api_example
-using CertifiedHomotopyTracking;
+```@setup visualization_api_example
+using CertifiedHomotopyTracking
+```
 
+```@repl visualization_api_example
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + y - 2, y^2 + x - 2];

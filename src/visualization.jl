@@ -305,8 +305,6 @@ Export path boxes to a TikZ file.
 # Example
 
 ```julia
-using CertifiedHomotopyTracking;
-
 @variables x y;
 CC = AcbField(128);
 F = [x^2 + y - 2, y^2 + x - 2];
