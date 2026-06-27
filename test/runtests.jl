@@ -22,6 +22,23 @@ end
     @test iszero(evaluate_dt(sys, start, CC(0))[1] - CC(1))
 end
 
+@testset "ACB inverse coercion and shape checks" begin
+    CC = AcbField(128)
+
+    mixed = Any[1 0; 0 CC(2)]
+    inv_mixed = inv_acb(mixed, CC)
+    @test inv_mixed isa Matrix{AcbFieldElem}
+    @test iszero(inv_mixed[1, 1] - CC(1))
+    @test iszero(inv_mixed[2, 2] - inv(CC(2)))
+
+    inferred = inv_acb(Any[CC(3) 0; 0 1])
+    @test abs(convert_to_double_int(inferred[1, 1]) - 1 / 3) < 1e-12
+    @test abs(convert_to_double_int(inferred[2, 2]) - 1) < 1e-12
+
+    @test_throws DimensionMismatch inv_acb(Any[CC(1) 0], CC)
+    @test_throws ArgumentError inv_acb(Any[1 0; 0 1])
+end
+
 @testset "Taylor model real domain interval" begin
     RR = ArbField(128)
     CC = AcbField(128)

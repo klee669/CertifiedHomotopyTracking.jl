@@ -123,7 +123,7 @@ function compute_preconditioner(sys::SpecializedHomotopy, x::AbstractVector{AcbF
     x_mid = get_mid_vec(x)
     t_mid = t isa AcbFieldElem ? get_mid(t) : CC(t)
     J_val = evaluate_Jac(sys, x_mid, t_mid) 
-    return inv_acb(J_val)
+    return inv_acb(J_val, CC)
 end
 
 function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r; rho=0.7)

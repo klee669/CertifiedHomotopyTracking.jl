@@ -750,7 +750,7 @@ function _validate_local_parameter_endpoint_box_segment_once(
     local_parameter_interval = _local_parameter_interval_hull(sys, c0_enclosure, c1_enclosure)
     orientation = _local_parameter_orientation(c0, c1)
 
-    A = inv_acb(_local_parameter_jacobian(sys, u_mid, local_parameter.index, c_mid, n))
+    A = inv_acb(_local_parameter_jacobian(sys, u_mid, local_parameter.index, c_mid, n), sys.CC)
     x_mid, t_mid = _local_parameter_reconstruct_x_t(sys, u_mid, local_parameter.index, local_parameter_interval, n)
     F_val = _local_parameter_real_rows(sys, evaluate_H(sys, x_mid, t_mid))
 
@@ -1139,7 +1139,7 @@ function _local_parameter_unknown_velocity(sys::SpecializedHomotopy, node::Certi
     c = _local_parameter_value(sys, node.x, sys.CC(node.t), local_parameter_index)
     Ju = _local_parameter_jacobian(sys, u, local_parameter_index, c, n)
     Js = _local_parameter_column(sys, node.x, sys.CC(node.t), local_parameter_index)
-    return -(inv_acb(Ju) * Js)
+    return -(inv_acb(Ju, sys.CC) * Js)
 end
 
 function _construct_local_parameter_hermite_tm(sys::SpecializedHomotopy, u0, u1, du0, du1, c0, c1)
@@ -1194,7 +1194,7 @@ function _validate_local_parameter_segment_once(
     x_tm, t_tm = _local_parameter_reconstruct_x_t(sys, U_tm, local_parameter.index, local_parameter_tm, n)
 
     U_mid = [(u0[i] + u1[i]) / sys.CC(2) for i in eachindex(u0)]
-    A = inv_acb(_local_parameter_jacobian(sys, U_mid, local_parameter.index, c_mid, n))
+    A = inv_acb(_local_parameter_jacobian(sys, U_mid, local_parameter.index, c_mid, n), sys.CC)
     F_tm = _local_parameter_real_rows_tm(sys, evaluate_H(sys, x_tm, t_tm))
 
     F_val = Vector{AcbFieldElem}(undef, 2n)
