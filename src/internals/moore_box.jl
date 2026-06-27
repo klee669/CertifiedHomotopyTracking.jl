@@ -107,7 +107,7 @@ _moore_should_shrink(::SpecializedHomotopy, state, delta, r, rho) =
 
 function _moore_apply_correction(sys::SpecializedHomotopy, state, delta; kwargs...)
     y = get_mid_vec(state.y - delta)
-    A = inv_acb(evaluate_Jac(sys, y, state.t))
+    A = inv_acb(evaluate_Jac(sys, y, state.t), sys.CC)
     return (y=y, A=A, t=state.t)
 end
 

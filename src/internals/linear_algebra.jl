@@ -143,10 +143,23 @@ function create_seed_pair(
 end
 
 
-function inv_acb(A::AbstractMatrix)
-    CC = eltype(A) === AcbFieldElem ? parent(A[1,1]) : parent(first(A))
-    n = size(A, 1)
-    
+function _infer_acb_field(A::AbstractMatrix)
+    for entry in A
+        entry isa AcbFieldElem && return parent(entry)
+    end
+    throw(ArgumentError("Cannot infer an AcbField from a matrix with no AcbFieldElem entries; call inv_acb(A, CC) with an explicit field."))
+end
+
+function _assert_square_matrix(A::AbstractMatrix, caller::AbstractString)
+    n_rows, n_cols = size(A)
+    n_rows == n_cols ||
+        throw(DimensionMismatch("$caller expects a square matrix, got a $(n_rows)×$(n_cols) matrix. CHT's current Krawczyk preconditioner does not support overdetermined systems; square up the system or use a square subsystem."))
+    return n_rows
+end
+
+function inv_acb(A::AbstractMatrix, CC::AcbField)
+    n = _assert_square_matrix(A, "inv_acb")
+
     if eltype(A) !== AcbFieldElem
         A_typed = Matrix{AcbFieldElem}(undef, n, n)
         for i in 1:n, j in 1:n
@@ -163,4 +176,9 @@ function inv_acb(A::AbstractMatrix)
         res[i,j] = InvMat[i,j]
     end
     return res
+end
+
+function inv_acb(A::AbstractMatrix)
+    CC = _infer_acb_field(A)
+    return inv_acb(A, CC)
 end
