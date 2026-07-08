@@ -284,17 +284,34 @@ function krawczyk_test(
     return krawczyk_test(variety, center, frame, tangent_offsets, tangent_radii, normal_radius; rho=rho)
 end
 
-function krawczyk_test(
+"""
+    krawczyk_operator(variety, center, frame, tangent_radius, normal_radius)
+    krawczyk_operator(variety, center, frame, tangent_offsets, tangent_radii, normal_radius)
+
+Return the compressed normal Krawczyk operator used by the variety
+[`krawczyk_test`](@ref). Its infinity norm is the reported Krawczyk norm.
+"""
+function krawczyk_operator(
+    variety::AlgebraicVarietySystem,
+    center,
+    frame::VarietyFrame,
+    tangent_radius,
+    normal_radius,
+)
+    tangent_offsets, tangent_radii = _symmetric_tangent_data(frame, tangent_radius)
+    return krawczyk_operator(variety, center, frame, tangent_offsets, tangent_radii, normal_radius)
+end
+
+function krawczyk_operator(
     variety::AlgebraicVarietySystem,
     center,
     frame::VarietyFrame,
     tangent_offsets::AbstractVector,
     tangent_radii::AbstractVector,
-    normal_radius;
-    rho=7/8,
+    normal_radius,
 )
     sys = variety.system
-    frame.rank == 0 && return true, 0.0
+    frame.rank == 0 && return AcbFieldElem[]
     normal_radius > 0 || throw(ArgumentError("normal_radius must be positive."))
 
     tangent_box = _tangent_box(variety, center, frame, tangent_offsets, tangent_radii)
@@ -306,7 +323,22 @@ function krawczyk_test(
 
     term1 = -(frame.preconditioner * F_tangent) ./ sys.CC(normal_radius)
     term2 = (I - frame.preconditioner * J_full * frame.normal) * B
-    K = term1 + term2
+    return term1 + term2
+end
+
+function krawczyk_test(
+    variety::AlgebraicVarietySystem,
+    center,
+    frame::VarietyFrame,
+    tangent_offsets::AbstractVector,
+    tangent_radii::AbstractVector,
+    normal_radius;
+    rho=7/8,
+)
+    frame.rank == 0 && return true, 0.0
+    normal_radius > 0 || throw(ArgumentError("normal_radius must be positive."))
+
+    K = krawczyk_operator(variety, center, frame, tangent_offsets, tangent_radii, normal_radius)
     k_norm = norm_inf(K)
     return k_norm < Float64(rho), k_norm
 end

@@ -60,12 +60,14 @@ end
 ####### functions for Krawczyk test
 """
     krawczyk_operator(system, point, r, A)
+    krawczyk_operator(sys::SpecializedHomotopy, x, t, r)
+    krawczyk_operator(sys::SpecializedHomotopy, x, t, r, A)
 
 Compute the legacy polynomial-ring Krawczyk operator for `system` at `point`
 with radius `r` and preconditioner `A`.
 
-For current [`SpecializedHomotopy`](@ref)-based code, prefer
-[`krawczyk_test`](@ref).
+For current [`SpecializedHomotopy`](@ref)-based code, the operator is the
+interval vector whose infinity norm is tested by [`krawczyk_test`](@ref).
 """
 function krawczyk_operator(
     system::Union{Matrix,AbstractAlgebra.Generic.MatSpaceElem}, 
@@ -131,7 +133,12 @@ function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}
     return krawczyk_test(sys, x, t, r, A; rho=rho)
 end
 
-function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
+function krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r)
+    A = compute_preconditioner(sys, x, t)
+    return krawczyk_operator(sys, x, t, r, A)
+end
+
+function krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem})
     CC = sys.CC; RR = sys.RR
     n = length(x)
 
@@ -147,6 +154,11 @@ function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}
     
     term2 = (I_mat - A * Jx) * B
     K = term1 + term2
+    return K
+end
+
+function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
+    K = krawczyk_operator(sys, x, t, r, A)
     k_norm = norm_inf(K)
     
     return k_norm < rho, k_norm
