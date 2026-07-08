@@ -20,6 +20,11 @@ end
     @test iszero(evaluate_H(sys, start, CC(0))[1])
     @test iszero(evaluate_Jac(sys, start, CC(0))[1, 1] - CC(1))
     @test iszero(evaluate_dt(sys, start, CC(0))[1] - CC(1))
+
+    K = krawczyk_operator(sys, start, CC(0), 1e-3)
+    passed, k_norm = krawczyk_test(sys, start, CC(0), 1e-3)
+    @test passed
+    @test norm_inf(K) == k_norm
 end
 
 @testset "ACB inverse coercion and shape checks" begin
@@ -108,8 +113,10 @@ end
     frame = CertifiedHomotopyTracking.local_tangent_normal_frame(curve, p)
     @test frame.dim == 1
     @test frame.rank == 1
-    passed, _ = krawczyk_test(curve, p, frame, 1e-3, 1e-3)
+    K = krawczyk_operator(curve, p, frame, 1e-3, 1e-3)
+    passed, k_norm = krawczyk_test(curve, p, frame, 1e-3, 1e-3)
     @test passed
+    @test norm_inf(K) == k_norm
 
     box = refine_moore_box(curve, [CC(1.0), CC(1e-8)], 1e-3)
     @test box.success
