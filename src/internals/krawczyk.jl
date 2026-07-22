@@ -30,6 +30,99 @@ function _acb_identity_matrix(CC::AcbField, n::Integer)
     return _fill_identity!(I_mat, CC)
 end
 
+"""
+    KrawczykWorkspace
+
+Task-local workspace for [`krawczyk_operator`](@ref), keyed by precision and
+dimension.
+
+`B` (the unit interval box) and `I_mat` (the identity) depend only on those two
+keys and are read-only operands, so they are built once instead of rebuilding
+`n + n^2` ball elements per step. The remaining fields are scratch: `x_expanded`
+holds the inflated evaluation point, and `acc`/`tmp`/`t1`/`t2`/`mij` accumulate
+the operator row by row so that no intermediate matrix is materialized.
+"""
+struct KrawczykWorkspace
+    prec::Int
+    n::Int
+    B::Vector{AcbFieldElem}
+    I_mat::Matrix{AcbFieldElem}
+    x_expanded::Vector{AcbFieldElem}
+    acc::AcbFieldElem
+    tmp::AcbFieldElem
+    t1::AcbFieldElem
+    t2::AcbFieldElem
+    mij::AcbFieldElem
+    kk::AcbFieldElem
+end
+
+_acb_entry(::AcbField, v::AcbFieldElem) = v
+_acb_entry(CC::AcbField, v) = CC(v)
+
+_as_acb_matrix(::AcbField, M::AbstractMatrix{AcbFieldElem}, ::Integer) = M
+_as_acb_matrix(CC::AcbField, M::AbstractMatrix, n::Integer) =
+    AcbFieldElem[_acb_entry(CC, M[i, j]) for i in 1:n, j in 1:n]
+
+function _krawczyk_workspace(CC::AcbField, RR::ArbField, n::Integer)
+    store = task_local_storage()
+    cached = get(store, :cht_krawczyk_workspace, nothing)
+    if cached isa KrawczykWorkspace && cached.prec == precision(CC) && cached.n == n
+        return cached
+    end
+    ws = KrawczykWorkspace(
+        precision(CC),
+        Int(n),
+        _acb_unit_box_vector(CC, RR, n),
+        _acb_identity_matrix(CC, n),
+        [CC(0) for _ in 1:n],
+        CC(), CC(), CC(), CC(), CC(), CC(),
+    )
+    store[:cht_krawczyk_workspace] = ws
+    return ws
+end
+
+# Fused K = -(A*F)/r + (I - A*J)*B, accumulating the infinity norms of K, A*F
+# and I - A*J in the same pass so that no intermediate vector or matrix is
+# materialized. Returns (norm_K, Y, Z); the operation order matches the
+# unfused expressions used when `profile_validation=true`.
+function _fused_validation_norms(A, F_val, J_val, I_mat, B, r_cc, ws::KrawczykWorkspace)
+    n = length(F_val)
+    acc = ws.acc; tmp = ws.tmp; t1 = ws.t1; t2 = ws.t2; mij = ws.mij; kk = ws.kk
+    norm_K = 0.0; Y = 0.0; Z = 0.0
+    for i in 1:n
+        Nemo.mul!(acc, A[i, 1], F_val[1])
+        for k in 2:n
+            Nemo.mul!(tmp, A[i, k], F_val[k])
+            Nemo.add!(acc, acc, tmp)
+        end
+        Y = max(Y, mag_complex(acc))
+        Nemo.neg!(t1, acc)
+        Nemo.div!(t1, t1, r_cc)
+
+        row_sum = 0.0
+        for j in 1:n
+            Nemo.mul!(acc, A[i, 1], J_val[1, j])
+            for k in 2:n
+                Nemo.mul!(tmp, A[i, k], J_val[k, j])
+                Nemo.add!(acc, acc, tmp)
+            end
+            Nemo.sub!(mij, I_mat[i, j], acc)
+            row_sum += mag_complex(mij)
+            if j == 1
+                Nemo.mul!(t2, mij, B[1])
+            else
+                Nemo.mul!(tmp, mij, B[j])
+                Nemo.add!(t2, t2, tmp)
+            end
+        end
+        Z = max(Z, row_sum)
+
+        Nemo.add!(kk, t1, t2)
+        norm_K = max(norm_K, mag_complex(kk))
+    end
+    return norm_K, Y, Z
+end
+
 function _acb_unit_box_vector(CC::AcbField, RR::ArbField, n::Integer)
     B = Vector{AcbFieldElem}(undef, n)
     return _fill_unit_box!(B, CC, RR)
@@ -138,29 +231,71 @@ function krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldE
     return krawczyk_operator(sys, x, t, r, A)
 end
 
-function krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem})
+krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}) =
+    krawczyk_operator(sys, x, t, r, A, evaluate_H(sys, x, t))
+
+# `fx` is H(x, t). It does not depend on the radius, so callers sweeping r over
+# a range (the Moore box growth loop) evaluate it once and pass it in.
+function krawczyk_operator(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}, fx::AbstractVector)
     CC = sys.CC; RR = sys.RR
     n = length(x)
 
-    B = _acb_unit_box_vector(CC, RR, n)
-    
-    fx = evaluate_H(sys, x, t)
-    x_expanded = x .+ (B .* CC(r))
-    Jx = evaluate_Jac(sys, x_expanded, t)
-    
-    term1 = -(A * fx) ./ CC(r)
-    
-    I_mat = _acb_identity_matrix(CC, n)
-    
-    term2 = (I_mat - A * Jx) * B
-    K = term1 + term2
+    ws = _krawczyk_workspace(CC, RR, n)
+    B = ws.B
+    I_mat = ws.I_mat
+    r_cc = CC(r)
+
+    x_expanded = ws.x_expanded
+    for i in 1:n
+        Nemo.mul!(x_expanded[i], B[i], r_cc)
+        Nemo.add!(x_expanded[i], x[i], x_expanded[i])
+    end
+    # Constant Jacobian entries come back unboxed (e.g. Int), which makes the
+    # generated matrix `Matrix{Any}` and every entry a dynamic dispatch below.
+    # Converting a constant to a ball at this precision is exact.
+    Jx = _as_acb_matrix(CC, evaluate_Jac(sys, x_expanded, t), n)
+
+    # K = -(A*fx)/r + (I - A*Jx)*B, accumulated one row at a time so that the
+    # intermediate A*Jx and I - A*Jx matrices are never materialized. The
+    # operation order matches the unfused expression exactly.
+    acc = ws.acc; tmp = ws.tmp; t1 = ws.t1; t2 = ws.t2; mij = ws.mij
+    K = Vector{AcbFieldElem}(undef, n)
+    for i in 1:n
+        Nemo.mul!(acc, A[i, 1], fx[1])
+        for k in 2:n
+            Nemo.mul!(tmp, A[i, k], fx[k])
+            Nemo.add!(acc, acc, tmp)
+        end
+        Nemo.neg!(t1, acc)
+        Nemo.div!(t1, t1, r_cc)
+
+        for j in 1:n
+            Nemo.mul!(acc, A[i, 1], Jx[1, j])
+            for k in 2:n
+                Nemo.mul!(tmp, A[i, k], Jx[k, j])
+                Nemo.add!(acc, acc, tmp)
+            end
+            Nemo.sub!(mij, I_mat[i, j], acc)
+            if j == 1
+                Nemo.mul!(t2, mij, B[1])
+            else
+                Nemo.mul!(tmp, mij, B[j])
+                Nemo.add!(t2, t2, tmp)
+            end
+        end
+
+        K[i] = t1 + t2
+    end
     return K
 end
 
-function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7)
-    K = krawczyk_operator(sys, x, t, r, A)
+krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}; rho=0.7) =
+    krawczyk_test(sys, x, t, r, A, evaluate_H(sys, x, t); rho=rho)
+
+function krawczyk_test(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r, A::AbstractMatrix{AcbFieldElem}, fx::AbstractVector; rho=0.7)
+    K = krawczyk_operator(sys, x, t, r, A, fx)
     k_norm = norm_inf(K)
-    
+
     return k_norm < rho, k_norm
 end
 
@@ -175,6 +310,33 @@ function _matrix_inf_norm_bound(M::AbstractMatrix{AcbFieldElem})
     end
     return row_max
 end
+
+_empty_validation_profile() = (
+    time_build_t = 0.0,
+    time_evaluate_H = 0.0,
+    time_evaluate_taylor = 0.0,
+    time_expand_X = 0.0,
+    time_build_T = 0.0,
+    time_evaluate_Jac = 0.0,
+    time_AH = 0.0,
+    time_term1 = 0.0,
+    time_AJ = 0.0,
+    time_term2 = 0.0,
+    time_K = 0.0,
+    time_norms = 0.0,
+    alloc_build_t = 0,
+    alloc_evaluate_H = 0,
+    alloc_evaluate_taylor = 0,
+    alloc_expand_X = 0,
+    alloc_build_T = 0,
+    alloc_evaluate_Jac = 0,
+    alloc_AH = 0,
+    alloc_term1 = 0,
+    alloc_AJ = 0,
+    alloc_term2 = 0,
+    alloc_K = 0,
+    alloc_norms = 0,
+)
 
 function _profiled_validation_step(f, profile_validation::Bool)
     if profile_validation
@@ -241,6 +403,31 @@ function validate_step_taylor3_diagnostics(
 
     J_val, time_evaluate_Jac, alloc_evaluate_Jac = _profiled_validation_step(profile_validation) do
         evaluate_Jac(sys, validation_cache.X_expanded, T_expanded)
+    end
+
+    if !profile_validation
+        # Hot path: one fused pass, no intermediate vectors or matrices.
+        ws = _krawczyk_workspace(CC, RR, n)
+        norm_K, Y, Z = _fused_validation_norms(
+            A,
+            validation_cache.F_val,
+            _as_acb_matrix(CC, J_val, n),
+            validation_cache.I_mat,
+            validation_cache.B,
+            r_cc,
+            ws,
+        )
+        Y_over_r = Y / Float64(r)
+        return (
+            passed = norm_K < rho,
+            norm_K = norm_K,
+            Y = Y,
+            Z = Z,
+            Y_over_r = Y_over_r,
+            yz_bound = Y_over_r + Z,
+            radius = Float64(r),
+            profile = _empty_validation_profile(),
+        )
     end
 
     AH, time_AH, alloc_AH = _profiled_validation_step(profile_validation) do

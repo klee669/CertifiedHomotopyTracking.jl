@@ -1,4 +1,5 @@
 using Test
+using Random
 using CertifiedHomotopyTracking
 import HomotopyContinuation
 
@@ -350,4 +351,113 @@ end
     )
     @test export_path_tikz(trace_viz, trace_file; show_trace=true) == trace_file
     @test occursin("\\draw[black, line width=0.55pt]", read(trace_file, String))
+end
+
+@testset "Hot-path arithmetic is bit-identical to the unfused formulas" begin
+    CHT = CertifiedHomotopyTracking
+    CC = AcbField(128)
+    RR = ArbField(128)
+
+    # Two balls are the same enclosure only if midpoint *and* radius agree on
+    # both components. `==` on AcbFieldElem is a containment-style predicate,
+    # so it would not catch a widened remainder.
+    same(a, b) =
+        Nemo.midpoint(real(a)) == Nemo.midpoint(real(b)) &&
+        Nemo.radius(real(a)) == Nemo.radius(real(b)) &&
+        Nemo.midpoint(imag(a)) == Nemo.midpoint(imag(b)) &&
+        Nemo.radius(imag(a)) == Nemo.radius(imag(b))
+
+    ref_interval(h) = (upper = Nemo.midpoint(h) + Nemo.radius(h);
+                       half = RR(upper / 2);
+                       CC(Nemo.ball(half, half), RR(0)))
+    ref_poly(c0, c1, c2, c3, t) = c0 + t * (c1 + t * (c2 + t * c3))
+
+    function ref_mul(a, b)
+        t = ref_interval(a.h)
+        C0 = a.c0 * b.c0
+        C1 = a.c0 * b.c1 + a.c1 * b.c0
+        C2 = a.c0 * b.c2 + a.c1 * b.c1 + a.c2 * b.c0
+        C3 = a.c0 * b.c3 + a.c1 * b.c2 + a.c2 * b.c1 + a.c3 * b.c0
+        term4 = a.c1 * b.c3 + a.c2 * b.c2 + a.c3 * b.c1
+        term5 = a.c2 * b.c3 + a.c3 * b.c2
+        term6 = a.c3 * b.c3
+        t2 = t * t; t4 = t2 * t2; t5 = t4 * t; t6 = t4 * t2
+        trunc_error = term4 * t4 + term5 * t5 + term6 * t6
+        pA = ref_poly(a.c0, a.c1, a.c2, a.c3, t)
+        pB = ref_poly(b.c0, b.c1, b.c2, b.c3, t)
+        return (C0, C1, C2, C3, trunc_error + (pA * b.rem + pB * a.rem + a.rem * b.rem))
+    end
+
+    rng = MersenneTwister(20260722)
+    mk(exact, h) = CHT.TaylorModel3(
+        CC(randn(rng), randn(rng)), CC(randn(rng), randn(rng)),
+        CC(randn(rng), randn(rng)), CC(randn(rng), randn(rng)),
+        exact ? CC(0) : CC(RR("0.01 +/- 0.001"), RR("-0.02 +/- 0.001")),
+        h,
+    )
+
+    # Both remainder-zero branches and the general branch must all agree.
+    for exact_a in (true, false), exact_b in (true, false)
+        h = RR(0.05)
+        a = mk(exact_a, h)
+        b = mk(exact_b, h)
+        got = a * b
+        want = ref_mul(a, b)
+        @test same(got.c0, want[1])
+        @test same(got.c1, want[2])
+        @test same(got.c2, want[3])
+        @test same(got.c3, want[4])
+        @test same(got.rem, want[5])
+
+        s = CC(randn(rng), randn(rng))
+        m = CHT.get_mid(s)
+        scaled = a * s
+        want_rem = a.rem * s + ref_poly(a.c0, a.c1, a.c2, a.c3, ref_interval(h)) * (s - m)
+        @test same(scaled.c0, a.c0 * m)
+        @test same(scaled.rem, want_rem)
+
+        @test same(CHT.evaluate_taylor(a), ref_poly(a.c0, a.c1, a.c2, a.c3, ref_interval(h)) + a.rem)
+    end
+
+    @variables x y t
+    sys = straight_line_homotopy([x^2 + 3y - 4, y^2 + 3], [x^2 - 1, y^2 - 1], [x, y];
+                                 CCRing=CC, gamma=CC(0.5, 0.5))
+
+    # krawczyk_operator fuses -(A*fx)/r + (I - A*Jx)*B; compare against the
+    # unfused expression built from the same pieces.
+    for trial in 1:20
+        pt = [CC(randn(rng), randn(rng)), CC(randn(rng), randn(rng))]
+        tv = CC(rand(rng))
+        r = 10.0^(-rand(rng, 1:6))
+        A = CHT.compute_preconditioner(sys, pt, tv)
+
+        B = CHT._acb_unit_box_vector(CC, RR, 2)
+        fx = evaluate_H(sys, pt, tv)
+        Jx = evaluate_Jac(sys, pt .+ (B .* CC(r)), tv)
+        want = (-(A * fx) ./ CC(r)) + (CHT._acb_identity_matrix(CC, 2) - A * Jx) * B
+
+        got = krawczyk_operator(sys, pt, tv, r, A)
+        @test all(same(got[i], want[i]) for i in 1:2)
+    end
+
+    # The fused validation path must match the instrumented one exactly.
+    cache = CHT.KrawczykValidationCache(CC, RR, 2)
+    for trial in 1:20
+        h = 0.01
+        X_tm = [CHT.TaylorModel3(CC(randn(rng), randn(rng)), CC(randn(rng), randn(rng)),
+                                 CC(randn(rng), randn(rng)), CC(randn(rng), randn(rng)),
+                                 CC(0), RR(h)) for _ in 1:2]
+        t_start = 0.3
+        r = 1e-4
+        A = CHT.compute_preconditioner(sys, [tm.c0 for tm in X_tm], CC(t_start))
+        fused = CHT.validate_step_taylor3_diagnostics(sys, X_tm, t_start, h, r, A;
+                                                      cache=cache, profile_validation=false)
+        instrumented = CHT.validate_step_taylor3_diagnostics(sys, X_tm, t_start, h, r, A;
+                                                            cache=cache, profile_validation=true)
+        @test fused.passed == instrumented.passed
+        @test fused.norm_K == instrumented.norm_K
+        @test fused.Y == instrumented.Y
+        @test fused.Z == instrumented.Z
+        @test fused.yz_bound == instrumented.yz_bound
+    end
 end

@@ -119,7 +119,13 @@ end
 function mag_complex(z::AcbFieldElem)
     return Float64(abs(z))
 end
-norm_inf(v::AbstractArray{AcbFieldElem}) = maximum(mag_complex.(v))
+function norm_inf(v::AbstractArray{AcbFieldElem})
+    m = 0.0
+    for z in v
+        m = max(m, mag_complex(z))
+    end
+    return m
+end
 
 function get_mid(z::AcbFieldElem)
     CC = parent(z) 
