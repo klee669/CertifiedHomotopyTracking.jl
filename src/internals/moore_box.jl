@@ -48,7 +48,8 @@ end
 
 
 function refine_moore_box(sys::SpecializedHomotopy, x::AbstractVector{AcbFieldElem}, t, r_init, A_init; tau=0.125)
-    state = (y=copy(x), A=compute_preconditioner(sys, x, t), t=t)
+    y = copy(x)
+    state = (y=y, A=compute_preconditioner(sys, x, t), t=t, Hy=evaluate_H(sys, y, t))
     return _refine_moore_box(sys, state, sys.RR(r_init); rho=tau)
 end
 
@@ -98,9 +99,9 @@ end
 _moore_prepare(::SpecializedHomotopy, state; kwargs...) = state
 
 _moore_test(sys::SpecializedHomotopy, state, r, rho) =
-    krawczyk_test(sys, state.y, state.t, r, state.A; rho=rho)
+    krawczyk_test(sys, state.y, state.t, r, state.A, state.Hy; rho=rho)
 
-_moore_correction(sys::SpecializedHomotopy, state) = state.A * evaluate_H(sys, state.y, state.t)
+_moore_correction(sys::SpecializedHomotopy, state) = state.A * state.Hy
 
 _moore_should_shrink(::SpecializedHomotopy, state, delta, r, rho) =
     norm_inf(delta) <= (1/64) * rho * Float64(r)
@@ -108,7 +109,7 @@ _moore_should_shrink(::SpecializedHomotopy, state, delta, r, rho) =
 function _moore_apply_correction(sys::SpecializedHomotopy, state, delta; kwargs...)
     y = get_mid_vec(state.y - delta)
     A = inv_acb(evaluate_Jac(sys, y, state.t), sys.CC)
-    return (y=y, A=A, t=state.t)
+    return (y=y, A=A, t=state.t, Hy=evaluate_H(sys, y, state.t))
 end
 
 _moore_success(::SpecializedHomotopy, state, r, k_norm) = (state.y, r, state.A, true)
