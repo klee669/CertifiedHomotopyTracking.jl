@@ -16,6 +16,7 @@ const TAU = BigFloat(7) / 8
 const U_RHO = BigFloat("0.05")
 const ALPHA = BigFloat("0.5")
 const LAMBDA = BigFloat(154)
+const FIXED_RADIUS = BigFloat("0.05")
 
 solution_value(m, t) = sqrt(1 + (m - 1) * t)
 gamma_exact(x) = inv(abs(x))
@@ -113,6 +114,57 @@ function modified_apriori_track(m::Integer; max_steps=1_000_000)
     )
 end
 
+function refine_for_fixed_radius(m, t, y, radius; max_newton=100)
+    for newton_steps in 0:max_newton
+        krawczyk_r = normalized_krawczyk_bound(m, t, y, radius)
+        if krawczyk_r <= RHO
+            return y, newton_steps, krawczyk_r
+        end
+
+        a = 1 + (m - 1) * t
+        y = (y + a / y) / 2
+    end
+    error("fixed-radius Newton refinement did not certify m=$m at t=$t")
+end
+
+function fixed_radius_apriori_track(m::Integer; radius=FIXED_RADIUS, max_steps=1_000_000)
+    m > 1 || throw(ArgumentError("m must be greater than one"))
+
+    m_big = BigFloat(m)
+    t = BigFloat(0)
+    y = BigFloat(1)
+    steps = 0
+    total_newton_steps = 0
+    maximum_krawczyk = BigFloat(0)
+
+    while t < 1
+        steps < max_steps || error("maximum fixed-radius step count reached for m=$m")
+        y, newton_steps, kr = refine_for_fixed_radius(m_big, t, y, radius)
+        total_newton_steps += newton_steps
+        maximum_krawczyk = max(maximum_krawczyk, kr)
+
+        speed_bound = (m_big - 1) / (2 * abs(y))
+        dt = min((TAU - RHO) * radius / speed_bound, 1 - t)
+        t += dt
+        steps += 1
+    end
+
+    y, endpoint_newton_steps, kr = refine_for_fixed_radius(m_big, BigFloat(1), y, radius)
+    total_newton_steps += endpoint_newton_steps
+    maximum_krawczyk = max(maximum_krawczyk, kr)
+
+    length = (sqrt(m_big) - 1) / radius
+    return (
+        m=m,
+        iterations=steps,
+        length=length,
+        ratio=BigFloat(steps) / length,
+        newton_steps=total_newton_steps,
+        endpoint_error=abs(y - sqrt(m_big)),
+        maximum_krawczyk=maximum_krawczyk,
+    )
+end
+
 function check_constants()
     u_limit = 1 - inv(sqrt(1 + RHO))
     lambda_limit = 2 * sqrt(BigFloat(2)) * exp(BigFloat(1)) / U_RHO
@@ -153,6 +205,28 @@ function write_results(path, results)
     end
 end
 
+function write_comparison_results(path, m_values, modified_results, fixed_results, theorem_constant)
+    open(path, "w") do io
+        println(io, "m,modified_iterations,intrinsic_L,modified_iterations_per_L,fixed_iterations,fixed_radius_L,fixed_iterations_per_L,theorem_constant")
+        for i in eachindex(m_values)
+            modified = modified_results[i]
+            fixed = fixed_results[i]
+            @printf(
+                io,
+                "%d,%d,%.12g,%.12g,%d,%.12g,%.12g,%.12g\n",
+                m_values[i],
+                modified.iterations,
+                Float64(modified.length),
+                Float64(modified.ratio),
+                fixed.iterations,
+                Float64(fixed.length),
+                Float64(fixed.ratio),
+                Float64(theorem_constant),
+            )
+        end
+    end
+end
+
 function main()
     setprecision(BigFloat, 256) do
         constants = check_constants()
@@ -167,6 +241,8 @@ function main()
         m_values = [10, 100, 1000, 10000, 20000, 30000]
         results = [modified_apriori_track(m) for m in m_values]
         @assert all(result.maximum_krawczyk <= RHO for result in results)
+        fixed_results = [fixed_radius_apriori_track(m) for m in m_values]
+        @assert all(result.maximum_krawczyk <= RHO for result in fixed_results)
 
         println("       m    iterations              L          iters/L    Newton")
         for result in results
@@ -178,9 +254,45 @@ function main()
                 result.newton_steps)
         end
 
+
+        println("\nFixed radius r_0 = $(Float64(FIXED_RADIUS))")
+        println("       m    iterations        L_(r_0)          iters/L    Newton")
+        for result in fixed_results
+            @printf("%8d %13d %14.6f %16.6f %9d\n",
+                result.m,
+                result.iterations,
+                Float64(result.length),
+                Float64(result.ratio),
+                result.newton_steps)
+        end
+
         output_path = joinpath(@__DIR__, "results_modified_univariate.csv")
         write_results(output_path, results)
         println("\nWrote $output_path")
+
+        theorem_constant = (1 + TAU) * (LAMBDA + TAU) / (TAU - RHO)
+        comparison_path = joinpath(@__DIR__, "results_univariate_radius_comparison.csv")
+        write_comparison_results(
+            comparison_path,
+            m_values,
+            results,
+            fixed_results,
+            theorem_constant,
+        )
+        println("Wrote $comparison_path")
+
+        asymptotic_m_values = [100_000, 1_000_000, 100_000_000]
+        asymptotic_modified = [modified_apriori_track(m) for m in asymptotic_m_values]
+        asymptotic_fixed = [fixed_radius_apriori_track(m) for m in asymptotic_m_values]
+        asymptotic_path = joinpath(@__DIR__, "results_univariate_asymptotic.csv")
+        write_comparison_results(
+            asymptotic_path,
+            asymptotic_m_values,
+            asymptotic_modified,
+            asymptotic_fixed,
+            theorem_constant,
+        )
+        println("Wrote $asymptotic_path")
     end
 end
 
