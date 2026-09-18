@@ -3,23 +3,26 @@ using Printf
 # Exact scalar experiment for
 #   F_t(x) = x^2 - (1 + (m - 1)t),  x(t) = sqrt(1 + (m - 1)t).
 #
-# The complex box is B = [-1,1] + i[-1,1], equipped with the max norm on
-# real and imaginary parts.  For this norm, ||uv|| <= 2||u||||v||, so
+# We use the standard Smale gamma with the complex operator norm, so
 #
-#   gamma(F_t, x) = ||JF_t(x)^(-1) J^2F_t(x) / 2!|| = 1 / |x|.
+#   gamma(F_t, x) = ||JF_t(x)^(-1) J^2F_t(x) / 2!|| = 1 / (2|x|).
+#
+# Krawczyk inclusion is still tested in the complex square box
+# B = [-1,1] + i[-1,1]; its factor of two is included explicitly in
+# normalized_krawczyk_bound below.
 #
 # We cap the algorithmic radius at one to match the definition
 # r_alpha(t) = sup_{0 < r <= 1}{...} used by the complexity theorem.
 
 const RHO = BigFloat(1) / 8
 const TAU = BigFloat(7) / 8
-const U_RHO = BigFloat("0.05")
+const U_RHO = BigFloat("0.025")
 const ALPHA = BigFloat("0.5")
-const LAMBDA = BigFloat(154)
+const LAMBDA = BigFloat(308)
 const FIXED_RADIUS = BigFloat("0.05")
 
 solution_value(m, t) = sqrt(1 + (m - 1) * t)
-gamma_exact(x) = inv(abs(x))
+gamma_exact(x) = inv(2 * abs(x))
 tracking_radius(x) = min(BigFloat(1), U_RHO / (2 * gamma_exact(x)))
 
 function intrinsic_radius(x)
