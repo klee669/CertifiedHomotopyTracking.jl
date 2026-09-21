@@ -1,0 +1,9 @@
+system,paths,avg_iterations,avg_min_dt,avg_median_dt,avg_min_radius,avg_eta
+katsura3,4,1101.25,4.2e-4,9.6e-4,1.6e-3,2.1e-2
+katsura4,8,1942.25,1.5e-4,4.9e-4,9.8e-4,1.9e-2
+katsura5,16,6892.81,2.9e-5,1.4e-4,4.4e-4,1.3e-2
+katsura6,32,12777.9,2.8e-5,1.3e-4,2.7e-4,1.3e-2
+random(2^3),8,2498.5,7.4e-4,1.2e-3,1.7e-3,3.0e-2
+random(2^4),16,8275.44,2.4e-4,5.1e-4,9.7e-4,2.7e-2
+random(2^5),32,36323.3,3.9e-5,8.6e-5,2.7e-4,5.6e-2
+random(2^6),64,105884.52,2.6e-5,6.3e-5,2.6e-4,2.4e-2

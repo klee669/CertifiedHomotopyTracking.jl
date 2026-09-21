@@ -1,0 +1,9 @@
+system,method,paths,total_elapsed_sec,avg_iterations
+katsura3,order3_apriori,4,1.4332217090000001,22.0
+katsura4,order3_apriori,8,1.4749562090000001,36.0
+katsura5,order3_apriori,16,5.296979292,49.8125
+katsura6,order3_apriori,32,21.281288039999996,69.65625
+random(2^3),order3_apriori,8,0.6640354599999999,26.25
+random(2^4),order3_apriori,16,4.957513501,41.125
+random(2^5),order3_apriori,32,43.17720341599999,57.5625
+random(2^6),order3_apriori,64,176.86448871099998,54.015625
