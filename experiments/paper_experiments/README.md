@@ -1,8 +1,7 @@
 # Paper experiments
 
 This directory contains the executable Julia code and tabular data for the four
-subsections of the paper's `Experiments` section. Plotting and TikZ sources are
-intentionally not included.
+subsections of the paper ``A priori bounds for certified Krawczyk homotopy tracking''. 
 
 ## Setup
 
@@ -53,7 +52,7 @@ caller's working directory or on files outside the repository.
    CHT_FULL=1 julia --project=. experiments/paper_experiments/04_computational_efficiency/run.jl
    ```
 
-The default invocation is a smoke run. `CHT_FULL=1` selects dimensions 3--6
+The default invocation is a smoke run. `CHT_FULL=1` selects dimensions 3-6
 and all paths. Full runs, especially constant prediction in dimensions 5 and 6,
 can take a long time. `CHT_MAX_PATHS=N`, `CHT_ONLY_N=N`, and
 `CHT_ONLY_FAMILY=katsura|random_dense` can restrict experiment 4. Set
@@ -61,13 +60,8 @@ can take a long time. `CHT_MAX_PATHS=N`, `CHT_ONLY_N=N`, and
 
 ## Data policy
 
-Each `results/paper_table.csv` is a direct transcription of the table in the
-paper draft supplied on 2026-09-21. Files under `results/generated` are outputs
-of a new run and are ignored until explicitly added. Experiment 4 also keeps a
-completed per-path order-3 run in `results/archived_order3_run`.
-
-The random dense systems and gamma trick are seeded in the scripts. Timing is
-machine dependent, and changing a seed or gamma mode changes iteration counts.
+The scripts seed the random dense systems and gamma trick. Timing is
+machine-dependent, and changing a seed or gamma mode changes iteration counts.
 The `beltran_leykin` column in experiment 4 is archival comparison data; this
 repository does not contain the external alpha-theory tracker used to produce
 that column.
